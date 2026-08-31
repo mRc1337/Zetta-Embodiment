@@ -363,6 +363,53 @@ LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_
 
 修复后累计为 24 条有效 development episode、0/24 success、16248 条 latency events；model inference 1968 次、加权平均 208.455 ms，policy request end-to-end 平均 251.870 ms，chunk end-to-end 平均 550.663 ms，environment execution 2208 次、平均 143.972 ms。LoopX board 当前 30/30 terminal，其中本批 16 条均为 `official_result_present=true`；integrity reducer 仍统一返回 `runtime_isolation_not_attested`，所以 0 条 score-countable。该结果仍仅覆盖四个 task0，不是套件最终成绩。
 
+### 2026-08-31T16:44Z–16:57Z — development 第四批 32 条实跑
+
+继续使用固定 runner `d0463d0c249164a5490a4c5cf36bf43a32abc153` 和 plan SHA-256 `a705f054f1a6d1374442a77bf0c30ab9c11c7d4713e2fd08bbb5e4978a187414`，以每个 task0 八条、四条 suite lane 并发的方式执行 32 条 development episode。启动顺序仍为读取 LoopX experiment board、source revision fence、Gateway health check、全部 running 行预登记；fence 为 clean/admitted，Gateway 为 4/4 EnvWorker healthy。所有 seed 均不在 held-out `1–20`。
+
+四条 worker lane 均完成 8 条，supervisor 接受 32/32，`infra_invalid=0`、success 0/32。四个 task0 queue 均达到 14 completed、36 pending、0 running、0 failed。与上一批相比没有出现新的共享 session 冲突或 heartbeat 故障，说明 campaign-scoped session key 与批量编排在本轮 32 条负载下保持稳定。
+
+逐 episode 核心推理延迟（ms；`mean / p95`）：
+
+| setting / seed | logical id | model inference | policy request e2e | chunk e2e | environment execution | Critic | elapsed (s) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Goal-T / 31404 | `g0000-rollout-006` | 206.299 / 267.746 | 248.887 / 313.406 | 527.807 / 617.714 | 127.253 / 165.809 | 0.008 / 0.009 | 39.616 |
+| Goal-T / 15862 | `g0000-rollout-007` | 204.992 / 249.098 | 250.323 / 297.418 | 531.293 / 594.579 | 124.773 / 167.581 | 0.006 / 0.008 | 39.826 |
+| Goal-T / 98768 | `g0000-rollout-008` | 190.460 / 245.406 | 234.291 / 309.443 | 503.473 / 594.814 | 124.326 / 170.422 | 0.007 / 0.008 | 44.950 |
+| Goal-T / 90038 | `g0000-rollout-009` | 199.040 / 241.803 | 242.365 / 289.610 | 524.484 / 576.543 | 131.858 / 179.105 | 0.008 / 0.008 | 39.452 |
+| Goal-T / 64059 | `g0000-rollout-010` | 204.216 / 257.315 | 248.223 / 304.120 | 531.714 / 609.193 | 131.076 / 175.263 | 0.007 / 0.008 | 39.678 |
+| Goal-T / 72666 | `g0000-rollout-011` | 203.929 / 248.530 | 246.546 / 291.251 | 524.860 / 568.073 | 126.469 / 163.183 | 0.006 / 0.008 | 39.407 |
+| Goal-T / 15754 | `g0000-rollout-012` | 205.883 / 269.844 | 249.238 / 312.949 | 522.341 / 591.627 | 123.173 / 164.545 | 0.006 / 0.008 | 39.002 |
+| Goal-T / 63735 | `g0000-rollout-014` | 194.115 / 228.335 | 236.050 / 271.211 | 515.792 / 586.731 | 129.207 / 164.023 | 0.007 / 0.012 | 38.717 |
+| Goal-S / 34316 | `g0000-rollout-005` | 204.728 / 249.445 | 246.666 / 292.029 | 535.829 / 594.243 | 129.349 / 178.098 | 0.006 / 0.008 | 40.295 |
+| Goal-S / 68479 | `g0000-rollout-007` | 196.864 / 249.686 | 239.288 / 297.921 | 522.680 / 589.976 | 124.762 / 163.109 | 0.006 / 0.008 | 39.489 |
+| Goal-S / 46059 | `g0000-rollout-008` | 198.780 / 269.153 | 239.675 / 313.423 | 510.867 / 577.990 | 119.487 / 154.897 | 0.006 / 0.008 | 38.469 |
+| Goal-S / 85508 | `g0000-rollout-009` | 204.753 / 251.871 | 251.364 / 301.640 | 560.006 / 625.867 | 144.722 / 204.983 | 0.006 / 0.008 | 41.576 |
+| Goal-S / 61670 | `g0000-rollout-010` | 202.301 / 268.816 | 246.601 / 311.309 | 544.188 / 633.270 | 140.369 / 201.205 | 0.007 / 0.008 | 40.713 |
+| Goal-S / 7887 | `g0000-rollout-011` | 202.150 / 246.898 | 244.338 / 290.095 | 525.624 / 604.220 | 125.623 / 167.314 | 0.006 / 0.008 | 39.770 |
+| Goal-S / 41753 | `g0000-rollout-012` | 199.767 / 249.380 | 243.372 / 295.135 | 533.884 / 600.894 | 131.784 / 176.454 | 0.006 / 0.008 | 39.729 |
+| Goal-S / 98490 | `g0000-rollout-013` | 203.564 / 242.915 | 245.345 / 285.690 | 528.839 / 607.005 | 126.936 / 166.267 | 0.006 / 0.008 | 40.466 |
+| LIBERO-10-T / 83968 | `g0000-rollout-005` | 204.054 / 255.373 | 248.322 / 305.359 | 542.127 / 612.101 | 144.200 / 182.568 | 0.006 / 0.008 | 67.096 |
+| LIBERO-10-T / 47207 | `g0000-rollout-007` | 197.877 / 247.162 | 240.758 / 293.203 | 542.259 / 626.747 | 148.906 / 205.722 | 0.006 / 0.008 | 66.832 |
+| LIBERO-10-T / 72608 | `g0000-rollout-008` | 202.434 / 250.461 | 245.734 / 311.201 | 544.195 / 628.339 | 146.206 / 192.571 | 0.007 / 0.009 | 67.445 |
+| LIBERO-10-T / 44863 | `g0000-rollout-009` | 199.338 / 242.840 | 242.656 / 290.720 | 540.415 / 607.133 | 145.981 / 193.479 | 0.006 / 0.008 | 66.852 |
+| LIBERO-10-T / 15839 | `g0000-rollout-010` | 202.803 / 253.686 | 246.486 / 303.041 | 545.128 / 624.644 | 145.558 / 193.190 | 0.006 / 0.008 | 67.590 |
+| LIBERO-10-T / 81743 | `g0000-rollout-011` | 195.873 / 218.622 | 236.686 / 260.154 | 524.975 / 580.472 | 142.969 / 185.285 | 0.006 / 0.007 | 64.803 |
+| LIBERO-10-T / 90835 | `g0000-rollout-012` | 194.476 / 223.412 | 234.612 / 263.731 | 518.654 / 570.309 | 140.736 / 178.687 | 0.006 / 0.008 | 63.982 |
+| LIBERO-10-T / 40069 | `g0000-rollout-013` | 191.599 / 214.000 | 232.528 / 257.553 | 527.619 / 573.180 | 149.261 / 194.397 | 0.006 / 0.007 | 64.768 |
+| LIBERO-10-S / 18929 | `g0000-rollout-006` | 198.556 / 244.432 | 241.385 / 285.257 | 537.649 / 601.093 | 148.699 / 196.709 | 0.007 / 0.008 | 66.967 |
+| LIBERO-10-S / 4064 | `g0000-rollout-007` | 209.617 / 274.133 | 252.782 / 330.857 | 551.901 / 645.255 | 149.319 / 186.965 | 0.007 / 0.008 | 77.811 |
+| LIBERO-10-S / 41137 | `g0000-rollout-008` | 203.238 / 264.087 | 247.120 / 309.884 | 550.219 / 656.837 | 156.786 / 211.005 | 0.007 / 0.008 | 68.035 |
+| LIBERO-10-S / 53023 | `g0000-rollout-009` | 206.777 / 266.505 | 249.758 / 308.468 | 545.240 / 632.388 | 146.478 / 195.643 | 0.007 / 0.008 | 67.215 |
+| LIBERO-10-S / 54187 | `g0000-rollout-010` | 205.984 / 258.237 | 249.408 / 300.406 | 544.769 / 636.806 | 141.453 / 184.223 | 0.006 / 0.008 | 67.523 |
+| LIBERO-10-S / 60292 | `g0000-rollout-011` | 196.868 / 226.412 | 237.317 / 266.077 | 511.731 / 567.108 | 133.092 / 167.302 | 0.006 / 0.007 | 70.849 |
+| LIBERO-10-S / 32965 | `g0000-rollout-012` | 196.322 / 232.201 | 236.451 / 273.691 | 512.078 / 570.158 | 126.397 / 166.045 | 0.006 / 0.007 | 63.521 |
+| LIBERO-10-S / 56430 | `g0000-rollout-013` | 197.141 / 241.417 | 239.145 / 295.614 | 528.971 / 602.393 | 140.787 / 196.756 | 0.007 / 0.008 | 65.024 |
+
+本批共 21664 条 latency events；按组件事件数加权：model inference 2624 次、平均 200.617 ms，policy request end-to-end 2624 次、平均 243.290 ms，chunk end-to-end 2624 次、平均 532.655 ms，environment execution 2944 次、平均 138.336 ms，Critic evaluation 2944 次、平均 0.006 ms。Critic 仍为 strict pure-VLA 下的 no-op，Role1/recovery 未触发。
+
+固定 runner 的四批累计为 56 条有效 development episode、0/56 success、37912 条 latency events；model inference 4592 次、加权平均 203.976 ms，policy request end-to-end 平均 246.967 ms，chunk end-to-end 平均 540.373 ms，environment execution 5152 次、平均 140.751 ms，Critic evaluation 平均约 0.006 ms。LoopX board 为 62/62 terminal，其中本批 32 条均 `official_result_present=true`；所有 62 条仍为 0 score-countable，完整性分类继续是 `runtime_isolation_not_attested`。这仍只覆盖四个 task0，不能作为四套件最终成功率。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
@@ -370,6 +417,7 @@ LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_
 ```text
 56 targeted tests passed in 9.81s
 76 current targeted tests passed in 11.61s
+60 post-batch targeted tests passed in 8.20s
 40 campaigns / 2000 development slots / 800 held-out episodes per method: dry-run pass
 git diff --check: pass
 Python py_compile: pass
@@ -384,5 +432,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
-- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 6/50 个 development seeds，下一步继续其余 44 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
+- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 14/50 个 development seeds，下一步继续其余 36 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
