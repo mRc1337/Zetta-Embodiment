@@ -79,6 +79,34 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _runtime_client_session_key(args: argparse.Namespace) -> str:
+    """Return a stable Runtime idempotency key for one campaign attempt.
+
+    ``logical_id`` is only unique inside a campaign.  Using it by itself makes
+    concurrent campaigns (whose first rollout is commonly
+    ``g0000-rollout-000``) alias the same Runtime session.  Bind the key to the
+    episode identity and a digest of its attempt directory so retries remain
+    idempotent without leaking the local result path to the Runtime.
+    """
+
+    attempt_scope = canonical_sha256(
+        {
+            "suite": str(args.suite),
+            "task_id": int(args.task_id),
+            "task": str(args.task),
+            "seed": int(args.seed),
+            "generation": int(args.generation),
+            "logical_id": str(args.logical_id),
+            "attempt_index": int(args.attempt_index),
+            "output_dir": str(Path(args.output_dir).resolve()),
+        }
+    )[:24]
+    return (
+        f"{args.suite}-t{int(args.task_id)}-s{int(args.seed)}-"
+        f"g{int(args.generation)}-a{int(args.attempt_index)}-{attempt_scope}"
+    )
+
+
 def _exception_traceback(exc: Exception) -> str:
     """Return the local traceback plus any traceback sent by an RPC server."""
 
@@ -499,9 +527,7 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
                     [
                         CreateSessionRequest(
                             application_id="zetta-libero",
-                            client_session_key=(
-                                f"{args.logical_id}-attempt-{args.attempt_index}"
-                            ),
+                            client_session_key=_runtime_client_session_key(args),
                             env_spec=EnvSpecMsg(
                                 env_family="libero",
                                 env_config={

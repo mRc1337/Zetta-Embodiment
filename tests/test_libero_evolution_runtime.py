@@ -26,6 +26,7 @@ from robots.libero.run_evolution_rollout import (
     _frozen_subprocess_environment,
     _require_expected_task_language,
     _role1_inference_heartbeat,
+    _runtime_client_session_key,
 )
 from robots.libero.tool_catalog import DEFAULT_LIBERO_ROLE1_TOOL_CATALOG
 from robots.libero.tools import (
@@ -70,6 +71,30 @@ def test_rollout_requires_live_language_to_match_frozen_contract() -> None:
         _require_expected_task_language("pick up the book", expected)
     with pytest.raises(RuntimeError, match="is empty"):
         _require_expected_task_language(None, expected)
+
+
+def test_runtime_session_key_is_stable_and_campaign_scoped(tmp_path: Path) -> None:
+    common = {
+        "suite": "libero_goal_task",
+        "task_id": 0,
+        "task": "libero_goal_task/task0",
+        "seed": 66655,
+        "generation": 0,
+        "logical_id": "g0000-rollout-000",
+        "attempt_index": 0,
+    }
+    first = SimpleNamespace(**common, output_dir=tmp_path / "campaign-a" / "attempt")
+    second = SimpleNamespace(**common, output_dir=tmp_path / "campaign-b" / "attempt")
+    other_suite = SimpleNamespace(
+        **{**common, "suite": "libero_goal_swap"},
+        output_dir=tmp_path / "campaign-a" / "attempt",
+    )
+
+    first_key = _runtime_client_session_key(first)
+    assert first_key == _runtime_client_session_key(first)
+    assert first_key != _runtime_client_session_key(second)
+    assert first_key != _runtime_client_session_key(other_suite)
+    assert str(tmp_path) not in first_key
 
 
 def test_campaign_probes_authoritative_task_language(monkeypatch) -> None:
