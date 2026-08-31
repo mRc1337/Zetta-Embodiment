@@ -280,6 +280,25 @@ def test_infer_batch_returns_one_response_per_request(stub_model: _StubModel) ->
     core.close()
 
 
+def test_infer_batch_returns_opt_in_component_latency(stub_model: _StubModel) -> None:
+    core = _core()
+    core.load()
+    response = core.infer_batch(
+        [_request(0, inference_parameters={"mode": "eval", "record_latency": True})]
+    )[0]
+
+    assert response.error is None
+    latency = response.auxiliary_outputs["latency_s"]
+    assert set(latency) == {
+        "observation_preprocess",
+        "model_inference",
+        "action_decode",
+        "action_postprocess",
+    }
+    assert all(float(value) >= 0.0 for value in latency.values())
+    core.close()
+
+
 def test_robocasa_action_dim_remaps_gripper_and_control_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

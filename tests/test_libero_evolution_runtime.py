@@ -223,10 +223,20 @@ def _recovery_context() -> dict[str, Any]:
 def test_libero_role1_is_only_recovery_environment_writer(tmp_path: Path) -> None:
     adapter = _Role1Adapter(selected_tool="libero.move_to")
     primitives = _RecoveryPrimitives()
+
+    class _LatencySink:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, float, dict[str, Any]]] = []
+
+        def record(self, component: str, elapsed_s: float, **metadata: Any) -> None:
+            self.events.append((component, elapsed_s, metadata))
+
+    latency = _LatencySink()
     actor = LiberoRole1RecoveryActor(
         adapter=adapter,  # type: ignore[arg-type]
         audit_root=tmp_path / "audit",
         allowed_tools=("move_to",),
+        latency_recorder=latency,
     )
 
     result = actor.decide_and_execute(
@@ -256,6 +266,11 @@ def test_libero_role1_is_only_recovery_environment_writer(tmp_path: Path) -> Non
     assert result.selected_tool == "move_to"
     assert result.executed_horizon == 3
     assert primitives.calls == [{"xyz": [0.1, 0.2, 0.3]}]
+    assert [event[0] for event in latency.events] == [
+        "role1_llm_request",
+        "recovery_execution",
+    ]
+    assert all(event[1] >= 0 for event in latency.events)
     assert adapter.events[0].tool_proposals[0].tool == "libero.move_to"
     assert set(adapter.images[0]) == {"agentview", "wrist"}
     activation = adapter.events[0].critic_proposals[0].details[

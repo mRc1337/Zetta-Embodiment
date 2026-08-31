@@ -7,6 +7,7 @@ import base64
 import hashlib
 import io
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -141,12 +142,14 @@ class LiberoRole1RecoveryActor:
         audit_root: str | Path,
         allowed_tools: Sequence[str],
         allow_privileged_evidence: bool = LIBERO_PRIVILEGED_EVIDENCE_DEFAULT,
+        latency_recorder: Any | None = None,
     ) -> None:
         self.adapter = adapter
         self.audit_root = Path(audit_root)
         self.audit_root.mkdir(parents=True, exist_ok=True)
         self.allowed_tools = frozenset(str(value) for value in allowed_tools)
         self.allow_privileged_evidence = bool(allow_privileged_evidence)
+        self.latency_recorder = latency_recorder
         if not self.allowed_tools:
             raise ValueError("LIBERO recovery Actor requires a frozen tool allowlist")
 
@@ -265,7 +268,17 @@ class LiberoRole1RecoveryActor:
             tool_proposals=(recovery_proposal, interrupted_proposal),
             critic_proposals=critic_proposals,
         )
-        effect = self.adapter.decide(event, image_payloads=images)
+        role1_started = time.perf_counter()
+        try:
+            effect = self.adapter.decide(event, image_payloads=images)
+        finally:
+            if self.latency_recorder is not None:
+                self.latency_recorder.record(
+                    "role1_llm_request",
+                    time.perf_counter() - role1_started,
+                    step_index=step_index,
+                    recovery_id=recovery_context.get("recovery_id"),
+                )
         if effect.termination.approved or effect.direct_action is not None:
             raise LiberoRecoveryActorError(
                 "Role1 cannot terminate or bypass a frozen recovery step"
@@ -295,7 +308,18 @@ class LiberoRole1RecoveryActor:
             )
         begin_recovery_step()
         before = int(primitives.env.episode_steps)
-        result = handler(**effective_parameters)
+        recovery_started = time.perf_counter()
+        try:
+            result = handler(**effective_parameters)
+        finally:
+            if self.latency_recorder is not None:
+                self.latency_recorder.record(
+                    "recovery_execution",
+                    time.perf_counter() - recovery_started,
+                    step_index=step_index,
+                    recovery_id=recovery_context.get("recovery_id"),
+                    selected_tool=selected_short,
+                )
         after = int(primitives.env.episode_steps)
         if not isinstance(result, dict):
             result = {"value": result}

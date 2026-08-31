@@ -29,6 +29,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from robots.libero.critic_runtime import extract_libero_critic_features
 from robots.libero.env_client import LiberoEnvClient
+from robots.libero.latency import DEFAULT_LATENCY_COMPONENTS, LatencyRecorder
 from robots.libero.evolution_defaults import (
     LIBERO_WAIT_STEPS_DEFAULT,
     add_privileged_evidence_argument,
@@ -307,6 +308,25 @@ def _role1_inference_heartbeat(
 def _run(args: argparse.Namespace) -> EpisodeRecord:
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    latency_events_path = Path(
+        getattr(args, "latency_events", None) or output / "latency" / "events.jsonl"
+    )
+    latency_summary_path = Path(
+        getattr(args, "latency_summary", None) or output / "latency" / "summary.json"
+    )
+    latency = LatencyRecorder(
+        enabled=bool(getattr(args, "record_latency", False)),
+        events_path=latency_events_path,
+        summary_path=latency_summary_path,
+        components=getattr(args, "latency_components", None),
+        context={
+            "suite": args.suite,
+            "task_id": int(args.task_id),
+            "logical_id": args.logical_id,
+            "attempt_index": int(args.attempt_index),
+        },
+    )
+    episode_latency_started = time.perf_counter()
     horizon_contract = libero_horizon_contract(
         args.suite,
         max_actions=getattr(args, "max_actions", None),
@@ -545,6 +565,7 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
             model,
             UnavailableSam3Client("evolution rollout does not use segmentation"),
             allow_privileged_actions=privileged_evidence_enabled(args),
+            latency_recorder=latency,
         )
         if args.runtime_url:
             obs, _ = env.reset(
@@ -625,6 +646,7 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
                     or name != "semantic_joint_interact"
                 ),
                 allow_privileged_evidence=privileged_evidence_enabled(args),
+                latency_recorder=latency,
             )
 
         def handle_recovery(proposals: Sequence[dict[str, Any]]) -> None:
@@ -895,12 +917,15 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
             "runtime_devices": str(runtime_devices_path),
             "evaluation_horizon": str(horizon_path),
         }
+        if latency.enabled:
+            artifact_index["latency_events"] = str(latency_events_path)
+            artifact_index["latency_summary"] = str(latency_summary_path)
         if video.get("source_manifest"):
             artifact_index["video_source_manifest"] = str(video["source_manifest"])
         for path in sorted((output / "role1").rglob("*")) if (output / "role1").is_dir() else ():
             if path.is_file():
                 artifact_index[f"role1:{path.relative_to(output / 'role1').as_posix()}"] = str(path)
-        return EpisodeRecord(
+        final_record = EpisodeRecord(
             episode_id=episode_id,
             logical_id=args.logical_id,
             generation=args.generation,
@@ -922,7 +947,29 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
             safety_events=(),
             attempt_index=args.attempt_index,
         )
+        latency.record(
+            "episode_end_to_end",
+            time.perf_counter() - episode_latency_started,
+            status="valid",
+            success=success,
+            chunks=chunks,
+            environment_steps=int(env.episode_steps),
+        )
+        latency.finalize()
+        return final_record
     finally:
+        if latency.enabled and not latency.finalized:
+            with contextlib.suppress(Exception):
+                latency.record(
+                    "episode_end_to_end",
+                    time.perf_counter() - episode_latency_started,
+                    status="incomplete",
+                    chunks=chunks,
+                    environment_steps=(
+                        int(env.episode_steps) if env is not None else 0
+                    ),
+                )
+                latency.finalize()
         try:
             flush_audit_trace()
         except Exception as exc:
@@ -1047,6 +1094,26 @@ def main() -> int:
         "--wait-steps", type=int, default=LIBERO_WAIT_STEPS_DEFAULT
     )
     parser.add_argument("--actions-per-chunk", type=int, default=5)
+    parser.add_argument(
+        "--record-latency",
+        action="store_true",
+        help="write per-component latency JSONL and a statistical summary",
+    )
+    parser.add_argument(
+        "--latency-events",
+        default=None,
+        help="latency JSONL path (default: OUTPUT_DIR/latency/events.jsonl)",
+    )
+    parser.add_argument(
+        "--latency-summary",
+        default=None,
+        help="latency summary JSON path (default: OUTPUT_DIR/latency/summary.json)",
+    )
+    parser.add_argument(
+        "--latency-components",
+        default=",".join(sorted(DEFAULT_LATENCY_COMPONENTS)),
+        help="comma-separated component allowlist",
+    )
     parser.add_argument("--visual-overview-frames", type=int, default=25)
     parser.add_argument("--visual-event-window-radius", type=int, default=8)
     parser.add_argument("--visual-event-window-stride", type=int, default=2)
@@ -1123,6 +1190,8 @@ def main() -> int:
             ("chunks", "trajectory/chunks.jsonl"),
             ("tools", "tool_events.jsonl"),
             ("runtime_devices", "runtime-device-assignment.json"),
+            ("latency_events", "latency/events.jsonl"),
+            ("latency_summary", "latency/summary.json"),
         ):
             path = output / relative
             if path.is_file():

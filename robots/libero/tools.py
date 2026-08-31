@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
@@ -210,6 +211,7 @@ class LiberoPrimitives:
         sam3_client: Sam3Client,
         *,
         allow_privileged_actions: bool = False,
+        latency_recorder: Any | None = None,
     ):
         self.env = env
         self.model = model
@@ -233,6 +235,7 @@ class LiberoPrimitives:
         self._policy_rng: int | None = None
         self._policy_call_index = 0
         self._allow_privileged_actions = bool(allow_privileged_actions)
+        self._latency_recorder = latency_recorder
         # Motion proposal state is episode-local and never exposed as raw
         # simulator geometry to the VLA/Critic plane.  Action wrappers below
         # use it to enforce candidate freshness across Role1 decisions.
@@ -441,8 +444,35 @@ class LiberoPrimitives:
         self.set_obs(obs)
         return self._last_obs, info
 
+    def _record_latency(
+        self, component: str, elapsed_s: float, **metadata: Any
+    ) -> None:
+        recorder = self._latency_recorder
+        if recorder is not None:
+            recorder.record(component, elapsed_s, **metadata)
+
+    def _record_environment_latency(
+        self, info: Mapping[str, Any] | None, *, wall_elapsed_s: float, source: str
+    ) -> None:
+        timing = dict((info or {}).get("latency_s") or {})
+        self._record_latency(
+            "environment_execution",
+            float(timing.get("environment_execution", wall_elapsed_s)),
+            source=source,
+            environment_chunk_total_s=timing.get("environment_chunk_total"),
+            action_preprocess_s=timing.get("action_preprocess"),
+        )
+        if "critic_evaluation" in timing:
+            self._record_latency(
+                "critic_evaluation",
+                float(timing["critic_evaluation"]),
+                source=source,
+                critic_configured=self._critic_configured,
+            )
+
     def _step_env(self, action) -> None:
         """Execute one action and update the cached observation and video."""
+        env_started = time.perf_counter()
         if self._critic_configured:
             frames, _r, _t, _tr, _i = self.env.critic_chunk_step(
                 [action],
@@ -466,6 +496,11 @@ class LiberoPrimitives:
             obs, _r, _t, _tr, _i = self.env.step(action)
             self._last_chunk_info = dict(_i) if isinstance(_i, dict) else {}
             self._last_critic_proposals = []
+        self._record_environment_latency(
+            self._last_chunk_info,
+            wall_elapsed_s=time.perf_counter() - env_started,
+            source="warmup_or_recovery_step",
+        )
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
@@ -483,12 +518,17 @@ class LiberoPrimitives:
         inference_parameters: dict[str, Any] | None = None,
     ):
         """Run one VLA inference and a planner-controlled receding horizon."""
+        chunk_started = time.perf_counter()
         inference_parameters = self._policy_parameters(inference_parameters)
+        if self._latency_recorder is not None and self._latency_recorder.enabled:
+            inference_parameters = dict(inference_parameters or {})
+            inference_parameters["record_latency"] = True
         # Stash & override task_descriptions (one prompt).
         original_td = self._last_obs.get("task_descriptions")
         self._last_obs["task_descriptions"] = instruction
         self._last_obs.setdefault("extra_view_images", None)
 
+        policy_started = time.perf_counter()
         try:
             actions, metadata = self.model.predict_action_batch(
                 self._last_obs,
@@ -503,6 +543,30 @@ class LiberoPrimitives:
                 self._last_obs.pop("task_descriptions", None)
             else:
                 self._last_obs["task_descriptions"] = original_td
+        policy_elapsed = time.perf_counter() - policy_started
+        backend_timing = dict(
+            dict(metadata or {}).get("auxiliary_outputs", {}).get("latency_s") or {}
+        )
+        self._record_latency(
+            "policy_request_end_to_end",
+            policy_elapsed,
+            policy_call_index=max(0, self._policy_call_index - 1),
+        )
+        for component in (
+            "observation_preprocess",
+            "policy_queue_wait",
+            "model_inference",
+        ):
+            if component in backend_timing:
+                self._record_latency(
+                    component,
+                    float(backend_timing[component]),
+                    policy_call_index=max(0, self._policy_call_index - 1),
+                    batch_size=dict(metadata or {}).get("auxiliary_outputs", {}).get(
+                        "batch_size"
+                    ),
+                )
+        postprocess_started = time.perf_counter()
         actions = np.asarray(actions, dtype=np.float32)
         if actions.ndim != 2 or actions.shape[1] != 7:
             raise ValueError(
@@ -526,9 +590,18 @@ class LiberoPrimitives:
         actions[:, 3:6] *= float(rotation_scale)
         actions[:, 6] *= float(gripper_scale)
         actions = np.clip(actions, -clip, clip)
+        action_postprocess_s = time.perf_counter() - postprocess_started
+        action_postprocess_s += float(backend_timing.get("action_decode", 0.0))
+        action_postprocess_s += float(backend_timing.get("action_postprocess", 0.0))
+        self._record_latency(
+            "action_decode_postprocess",
+            action_postprocess_s,
+            policy_call_index=max(0, self._policy_call_index - 1),
+        )
         # actions: [chunk_size, action_dim] The whole chunk
         # runs in a single env.chunk_step RPC; the env owns the per-step
         # loop server-side.
+        env_started = time.perf_counter()
         if self._critic_configured:
             chunk_obs, _r, _t, _tr, _i = self.env.critic_chunk_step(
                 actions,
@@ -549,6 +622,7 @@ class LiberoPrimitives:
                 actions, return_all_frames=True
             )
             obs = chunk_obs[-1]
+        env_elapsed = time.perf_counter() - env_started
         if self._recording:
             for obs in chunk_obs:
                 self.record_frame(obs)
@@ -579,8 +653,20 @@ class LiberoPrimitives:
             "backend_metadata": metadata,
         }
         self._last_chunk_info = dict(_i) if isinstance(_i, dict) else {}
+        self._record_environment_latency(
+            self._last_chunk_info,
+            wall_elapsed_s=env_elapsed,
+            source="vla_chunk",
+        )
         self._last_critic_proposals = self._filter_suppressed_proposals(
             list(self._last_chunk_info.get("critic_proposals", ()))
+        )
+        self._record_latency(
+            "chunk_end_to_end",
+            time.perf_counter() - chunk_started,
+            policy_call_index=max(0, self._policy_call_index - 1),
+            predicted_horizon=predicted_horizon,
+            executed_horizon=executed_horizon,
         )
         return self._last_obs
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 from typing import Any
 
 import pytest
@@ -368,6 +369,34 @@ async def test_update_weights_never_mixes_versions_in_one_batch() -> None:
     assert set(batch_versions[switch:]) == {"fake-v2"}
     assert worker.weight_update_count == 1
     assert worker.scheduler.fenced is False
+
+
+async def test_opt_in_request_reports_scheduler_queue_latency() -> None:
+    channel = InProcInferenceChannel(request_queue_size=4, response_queue_size=4)
+    worker = RuntimeRolloutWorker(
+        policy=FakePolicyCore(FakePolicyConfig()),
+        scheduler_config=SchedulerConfig(max_batch_size=1, max_wait_ms=0.0),
+    )
+    channel.register_route(ROUTE)
+    task = await _serve(worker, channel)
+    try:
+        pending = make_pending()
+        request = dataclasses.replace(
+            pending.request,
+            inference_parameters={"record_latency": True},
+        )
+        await channel.put_request_nowait(request)
+        response = await asyncio.wait_for(channel.get_response(ROUTE), timeout=2.0)
+    finally:
+        await worker.stop()
+        channel.close()
+        task.cancel()
+        with contextlib.suppress(BaseException):
+            await task
+
+    latency = response.auxiliary_outputs["latency_s"]
+    assert latency["policy_queue_wait"] >= 0.0
+    assert latency["policy_worker_infer"] >= 0.0
 
 
 async def test_execute_batches_really_coalesces() -> None:

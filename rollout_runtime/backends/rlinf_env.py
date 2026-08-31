@@ -41,6 +41,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -1460,6 +1461,8 @@ class LiberoEnvCore:
             )
         # Divergence 4: action preprocessing reuses rlinf's family branch,
         # not a hand-written gripper transform.
+        chunk_started = time.perf_counter()
+        action_preprocess_started = time.perf_counter()
         prepared = np.asarray(
             prepare_actions(
                 block[None, ...],
@@ -1470,6 +1473,7 @@ class LiberoEnvCore:
             ),
             dtype=np.float32,
         )
+        action_preprocess_s = time.perf_counter() - action_preprocess_started
 
         rewards: list[float] = []
         terminations: list[bool] = []
@@ -1477,14 +1481,18 @@ class LiberoEnvCore:
         per_step_info: list[dict[str, Any]] = []
         frames: list[Observation] = []
         proposals: list[dict[str, Any]] = []
+        environment_execution_s = 0.0
+        critic_evaluation_s = 0.0
         obs: dict[str, Any] | None = None
         for index in range(int(prepared.shape[1])):
             if slot.terminated or slot.truncated:
                 break
             action = block[index]
+            env_started = time.perf_counter()
             obs, reward, terminated, truncated, _info = slot.env.step(
                 prepared[:, index], auto_reset=False
             )
+            environment_execution_s += time.perf_counter() - env_started
             slot.step_index = int(_to_numpy(slot.env.elapsed_steps).reshape(-1)[0])
             slot.env_steps += 1
             self.total_env_steps += 1
@@ -1495,9 +1503,11 @@ class LiberoEnvCore:
             terminations.append(slot.terminated)
             truncations.append(slot.truncated)
             step_info: dict[str, Any] = {"step_index": slot.step_index}
+            critic_started = time.perf_counter()
             step_proposals = self._evaluate_critic(
                 slot, obs, reward=reward_value, action=action
             )
+            critic_evaluation_s += time.perf_counter() - critic_started
             if step_proposals:
                 step_info["critic_proposal_rule_ids"] = [
                     row["rule_id"] for row in step_proposals
@@ -1520,6 +1530,12 @@ class LiberoEnvCore:
             "chunk_calls": slot.chunk_calls,
             "task_id": slot.task_id,
             "reset_state_id": slot.reset_state_id,
+            "latency_s": {
+                "action_preprocess": action_preprocess_s,
+                "environment_execution": environment_execution_s,
+                "critic_evaluation": critic_evaluation_s,
+                "environment_chunk_total": time.perf_counter() - chunk_started,
+            },
         }
         if slot.critic is not None:
             info["critic_proposals"] = proposals

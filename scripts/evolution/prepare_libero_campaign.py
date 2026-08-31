@@ -81,13 +81,25 @@ def _normalize_language(value: str) -> str:
 
 
 def _probe_task_language(args: argparse.Namespace) -> str:
-    """Resolve the installed benchmark's authoritative ``Task.language``."""
+    """Resolve the installed benchmark's authoritative BDDL instruction.
+
+    LIBERO-Pro task/language perturbations intentionally retain the base task
+    filename while changing ``(:language ...)`` inside the selected BDDL.
+    ``Task.language`` is derived from that filename and is therefore not an
+    authoritative prompt for those suites.  The runtime also reads the BDDL
+    field, so preregistration must freeze the same value.
+    """
 
     program = (
-        "import json; "
+        "import json,re; "
+        "from pathlib import Path; "
         "from liberopro.liberopro.benchmark import get_benchmark; "
-        f"task=get_benchmark({args.suite!r})().get_task({int(args.task_id)}); "
-        "print(json.dumps({'language': task.language}, ensure_ascii=False))"
+        f"suite=get_benchmark({args.suite!r})(); "
+        f"task=suite.get_task({int(args.task_id)}); "
+        f"text=Path(suite.get_task_bddl_file_path({int(args.task_id)})).read_text(encoding='utf-8'); "
+        "match=re.search(r'\\(:language\\s+([^)]+)\\)', text); "
+        "language=match.group(1).strip() if match else task.language; "
+        "print(json.dumps({'language': language}, ensure_ascii=False))"
     )
     completed = subprocess.run(
         [str(Path(os.path.abspath(args.runtime_python))), "-c", program],
@@ -139,7 +151,7 @@ def _load_task_contract(args: argparse.Namespace, task: str) -> dict[str, Any]:
             "task": task,
             "task_id": args.task_id,
             "language": resolved,
-            "source": "installed LIBERO-Pro benchmark Task.language",
+            "source": "installed LIBERO-Pro BDDL (:language)",
         }
     contract.setdefault("suite", args.suite)
     contract.setdefault("task", task)

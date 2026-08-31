@@ -42,6 +42,7 @@ inherently so), called via ``asyncio.to_thread`` by
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -456,12 +457,13 @@ class RlinfPolicyCore:
         self.batch_calls += 1
         self.request_count += len(requests)
         try:
-            actions = self._predict_batch(requests)
+            actions, batch_latency = self._predict_batch(requests)
         except BaseException as exc:  # noqa: BLE001 - D5: per-request normalization, never leak
             self.error_count += len(requests)
             return [self._error_response(request, exc) for request in requests]
         responses: list[ActionResponse] = []
         for index, request in enumerate(requests):
+            postprocess_started = time.perf_counter()
             block = np.ascontiguousarray(
                 np.asarray(actions[index], dtype=np.float32).reshape(
                     -1, int(self.config.action_dim)
@@ -488,6 +490,18 @@ class RlinfPolicyCore:
                     )
                 )
                 continue
+            auxiliary_outputs: dict[str, Any] = {
+                "chunk": int(block.shape[0]),
+                "compat_key": request.compat_key,
+                "batch_size": len(requests),
+                "model_type": self.config.model_type,
+            }
+            if batch_latency is not None:
+                auxiliary_outputs["latency_s"] = {
+                    **batch_latency,
+                    "action_postprocess": time.perf_counter()
+                    - postprocess_started,
+                }
             responses.append(
                 ActionResponse(
                     request_id=request.request_id,
@@ -497,12 +511,7 @@ class RlinfPolicyCore:
                     operation_seq=request.operation_seq,
                     actions=payload_module.encode_array(block),
                     model_version=self._model_version,
-                    auxiliary_outputs={
-                        "chunk": int(block.shape[0]),
-                        "compat_key": request.compat_key,
-                        "batch_size": len(requests),
-                        "model_type": self.config.model_type,
-                    },
+                    auxiliary_outputs=auxiliary_outputs,
                 )
             )
         return responses
@@ -527,7 +536,9 @@ class RlinfPolicyCore:
         mode = str(parameters.get("mode", self.config.default_mode))
         return {"mode": mode, "compute_values": False}
 
-    def _predict_batch(self, requests: list[InferenceRequest]) -> np.ndarray:
+    def _predict_batch(
+        self, requests: list[InferenceRequest]
+    ) -> tuple[np.ndarray, dict[str, float] | None]:
         """Build env_obs, run one ``predict_action_batch`` call, and return ``[B, chunk, dim]``.
 
         Args:
@@ -546,6 +557,11 @@ class RlinfPolicyCore:
 
         from zetta.compat.tensors import to_tensor
 
+        record_latency = any(
+            bool(request.inference_parameters.get("record_latency", False))
+            for request in requests
+        )
+        preprocess_started = time.perf_counter()
         observations = [request.observation for request in requests]
         reference = obs_schema_digest(observations[0])
         for index, observation in enumerate(observations[1:], start=1):
@@ -583,14 +599,29 @@ class RlinfPolicyCore:
         if pad_to > real:
             self.padded_request_count += pad_to - real
 
+        preprocess_elapsed = time.perf_counter() - preprocess_started
+        if record_latency and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        model_started = time.perf_counter()
         with torch.no_grad():
             actions, _result = self.model.predict_action_batch(
                 env_obs=payload, **self._predict_kwargs(requests)
             )
+        if record_latency and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        model_elapsed = time.perf_counter() - model_started
+        decode_started = time.perf_counter()
         if hasattr(actions, "detach"):
             actions = actions.detach().to(torch.float32).cpu().numpy()
         array = np.asarray(actions, dtype=np.float32)
-        return array[:real]
+        latency = None
+        if record_latency:
+            latency = {
+                "observation_preprocess": preprocess_elapsed,
+                "model_inference": model_elapsed,
+                "action_decode": time.perf_counter() - decode_started,
+            }
+        return array[:real], latency
 
     def _error_response(
         self, request: InferenceRequest, exc: BaseException

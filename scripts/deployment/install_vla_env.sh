@@ -113,7 +113,7 @@
 #                         when the build host cannot reach github.com (an internal mirror
 #                         or file:// path may be used)
 #   LIBEROPRO_PACKAGE     Optional for the libero-pro track: pip requirement for the
-#                         upstream LIBERO-Pro package. Defaults to liberopro==0.1.1;
+#                         upstream LIBERO-Pro package. Defaults to rlinf-liberopro==0.1.1;
 #                         override it with a full URL when using an internal mirror.
 #
 # Prerequisites (validated on Ubuntu 22.04; verify package names on other distributions):
@@ -136,7 +136,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3.10}"
 SKIP_ASSET_DOWNLOAD="${SKIP_ASSET_DOWNLOAD:-0}"
 ROBOCASA_SRC_ROOT="${ROBOCASA_SRC_ROOT:-}"
 FLASH_ATTN_WHEEL="${FLASH_ATTN_WHEEL:-}"
-LIBEROPRO_PACKAGE="${LIBEROPRO_PACKAGE:-liberopro==0.1.1}"
+LIBEROPRO_PACKAGE="${LIBEROPRO_PACKAGE:-rlinf-liberopro==0.1.1}"
 
 TRACK=""
 while [ $# -gt 0 ]; do
@@ -204,9 +204,14 @@ log "2/9 Install mujoco==3.3.1"
 "$PY" -m pip install mujoco==3.3.1
 
 if [ "$TRACK" = "libero-pro" ]; then
+  # LIBERO-Pro otherwise defaults to ~/.liberopro, which may be read-only in
+  # containers and managed notebook environments. Keep its mutable config with
+  # the standalone environment unless the caller selected another location.
+  export LIBERO_CONFIG_PATH="${LIBERO_CONFIG_PATH:-$VENV_ROOT/libero-pro-config}"
+
   log "3/9 [libero-pro] Install LIBERO-Pro (isolate its transitive rlinf-libero dependency)"
   "$PY" -m pip install "$LIBEROPRO_PACKAGE" --no-deps
-  "$PY" -m pip install "robosuite>=1.4,<1.5" bddl cloudpickle gym h5py imageio opencv-python termcolor
+  "$PY" -m pip install "robosuite>=1.4,<1.5" bddl cloudpickle easydict gym h5py imageio matplotlib opencv-python termcolor
 
   log "3.1/9 [libero-pro] Fix: verify that robosuite is the 1.4.x series required by liberopro"
   INSTALLED_ROBOSUITE="$("$PY" -m pip show robosuite 2>/dev/null | awk '/^Version:/{print $2}')"
@@ -254,10 +259,11 @@ if [ "$TRACK" = "libero-pro" ]; then
   "$PY" - <<'PYEOF'
 from importlib.metadata import distributions
 names = {str(item.metadata.get("Name", "")).lower() for item in distributions()}
-forbidden = sorted(name for name in names if name.startswith("rlinf-") and name != "rlinf-openpi")
+allowed = {"rlinf-openpi", "rlinf-liberopro", "rlinf-transformer-openpi"}
+forbidden = sorted(name for name in names if name.startswith("rlinf-") and name not in allowed)
 if "rlinf" in names or forbidden:
     raise SystemExit(f"forbidden RLinf distributions installed: {['rlinf'] if 'rlinf' in names else []}{forbidden}")
-print("RLinf distribution guard OK: only rlinf-openpi is allowed")
+print("RLinf distribution guard OK: only the OpenPI and LIBERO-Pro packages are installed")
 PYEOF
 
   log "5.1/9 [libero-pro] Fix: rlinf-openpi's dependency chain silently upgrades mujoco to 3.8.1; restore 3.3.1"
@@ -399,19 +405,18 @@ if [ "$TRACK" = "libero-pro" ]; then
          "points to a directory containing both robosuite's robots/panda/robot.xml and" \
          "liberopro's scenes/*.xml (a composite tree, not raw liberopro assets alone)."
   else
-    "$VENV_ROOT/bin/liberopro-download-assets"
+    "$VENV_ROOT/bin/liberopro-download-assets" --skip-existing
     LIBEROPRO_PKG_ROOT="$("$PY" -c 'import os, liberopro; print(os.path.dirname(liberopro.__file__))')"
     LIBEROPRO_ASSETS="$LIBEROPRO_PKG_ROOT/liberopro/assets"
     ROBOSUITE_ASSETS="$("$PY" -c 'import os, robosuite; print(os.path.join(os.path.dirname(robosuite.__file__), "models", "assets"))')"
     COMPOSITE_ASSETS="${LIBERO_COMPOSITE_ASSETS_DIR:-$VENV_ROOT/libero-pro-composite-assets}"
-    if [ -d "$COMPOSITE_ASSETS" ]; then
-      echo "The composite asset directory already exists; skipping rebuild: $COMPOSITE_ASSETS"
-    else
-      mkdir -p "$COMPOSITE_ASSETS"
-      cp -a "$ROBOSUITE_ASSETS/." "$COMPOSITE_ASSETS/"
-      cp -a "$LIBEROPRO_ASSETS/." "$COMPOSITE_ASSETS/"
-      echo "Composite asset tree built: $COMPOSITE_ASSETS"
-    fi
+    mkdir -p "$COMPOSITE_ASSETS"
+    cp -a --remove-destination "$ROBOSUITE_ASSETS/." "$COMPOSITE_ASSETS/"
+    # huggingface_hub may materialize the downloaded snapshot as relative
+    # symlinks into its cache. Dereference those links because they would be
+    # broken after copying the asset tree to a different directory.
+    cp -aL --remove-destination "$LIBEROPRO_ASSETS/." "$COMPOSITE_ASSETS/"
+    echo "Composite asset tree built/refreshed: $COMPOSITE_ASSETS"
     test -f "$COMPOSITE_ASSETS/robots/panda/robot.xml" || {
       echo "The composite asset tree is missing robots/panda/robot.xml (the robosuite base was not copied correctly)" >&2
       exit 1

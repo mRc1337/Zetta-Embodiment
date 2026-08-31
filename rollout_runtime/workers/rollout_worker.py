@@ -266,14 +266,37 @@ class RuntimeRolloutWorker:
             response_channel: The ``rr_infer_resp`` channel.
         """
         requests = [pending.request for pending in batch]
+        loop = asyncio.get_running_loop()
+        batch_started = loop.time()
+        queue_waits = [max(0.0, batch_started - pending.enqueued_at) for pending in batch]
         try:
             responses = await self.infer_batch(requests)
         except asyncio.CancelledError:
             raise
         except BaseException as exc:  # noqa: BLE001 - must never leak
             responses = [self._failed_response(request, exc) for request in requests]
+        infer_elapsed = max(0.0, loop.time() - batch_started)
+        timed_responses: list[ActionResponse] = []
+        for request, response, queue_wait in zip(
+            requests, responses, queue_waits, strict=False
+        ):
+            if not request.inference_parameters.get("record_latency", False):
+                timed_responses.append(response)
+                continue
+            auxiliary = dict(response.auxiliary_outputs)
+            latency = dict(auxiliary.get("latency_s") or {})
+            latency.update(
+                {
+                    "policy_queue_wait": queue_wait,
+                    "policy_worker_infer": infer_elapsed,
+                }
+            )
+            auxiliary["latency_s"] = latency
+            timed_responses.append(
+                dataclasses.replace(response, auxiliary_outputs=auxiliary)
+            )
         try:
-            await self.send_responses(responses, response_channel)
+            await self.send_responses(timed_responses, response_channel)
         except asyncio.CancelledError:
             raise
         except BaseException:  # noqa: BLE001 - response failures must not leak either
