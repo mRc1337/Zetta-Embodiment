@@ -8,6 +8,7 @@
 - [x] 验证 `libero_goal_task`、`libero_goal_swap`、`libero_10_task`、`libero_10_swap` 均为 10 个任务，且每个任务加载后的 init-state 集合非空。
 - [x] 使用冻结的 Pi0.5 基座运行真实 LIBERO-Pro episode，记录官方终止信号与成功率。
 - [x] 提供可配置的分组件延迟事件与 count/mean/p50/p95/max 汇总，并运行若干真实任务。
+- [x] 按论文 §4.1 冻结 4 setting × 10 task 的正式 campaign matrix，并验证 development/test seed 隔离、官方 horizon 与逐 episode latency 配置。
 
 ## 固定环境
 
@@ -150,7 +151,7 @@ LIBERO_CONFIG_PATH=/home/pai/zxw/openpi_data/pi05_libero/libero-pro-config \
 
 ### 实现与配置
 
-`--record-latency` 总开关默认关闭；打开后可用 `--latency-events`、`--latency-summary` 指定输出，用 `--latency-components` 提供逗号分隔的组件 allowlist。默认输出为 episode 目录下的 `latency/events.jsonl` 和 `latency/summary.json`。
+直接 episode runner 的 `--record-latency` 总开关默认关闭；正式 campaign prepare 默认开启并冻结该开关。打开后可用 `--latency-events`、`--latency-summary` 指定输出，用 `--latency-components` 提供逗号分隔的组件 allowlist。默认输出为 episode 目录下的 `latency/events.jsonl` 和 `latency/summary.json`。
 
 可记录组件：observation preprocess、policy queue wait、model inference、action decode/postprocess、policy request end-to-end、environment execution、critic evaluation、Role1 LLM request、recovery execution、chunk end-to-end 和 episode end-to-end。每条事件写 JSONL；汇总提供 count、mean、p50、p95、max。纯 Pi0.5 实测未触发 Role1/recovery，二者路径由单测覆盖。
 
@@ -194,17 +195,59 @@ Goal-S 完整 horizon 另外记录 501 条事件：60 次 model inference 平均
 - `/home/pai/zxw/openpi_data/pi05_libero/results/liberopro_latency/libero10-swap-t0-seed34/latency/summary.json`
 - `/home/pai/zxw/openpi_data/pi05_libero/results/liberopro_eval/goal-swap-t0-seed35-full/latency/summary.json`
 
+## 论文 §4.1 正式评测矩阵
+
+### 2026-08-31T15:22:31Z–15:28:00Z — 40-task campaign dry-run
+
+新增 `scripts/evolution/prepare_liberopro_paper_campaigns.py`，将 Goal-T、Goal-S、LIBERO-10-T、LIBERO-10-S 映射到 `libero_goal_task`、`libero_goal_swap`、`libero_10_task`、`libero_10_swap`。每个 task 生成独立、不可变、可通过 `--resume` 审计后续跑的 campaign；中断后只跳过 manifest 与矩阵完全一致的 task，部分目录或协议漂移会 fail closed。
+
+协议冻结如下：
+
+| 项目 | 冻结值 |
+|---|---:|
+| setting / tasks | 4 / 40 |
+| development seeds | 每 task 随机确定 50 个，强制排除 1–20 |
+| development rollout slots / round | 2000 |
+| diagnosis target | 最大 failure cluster 的 deterministic medoid |
+| held-out seeds | 每 task 固定 1–20 |
+| held-out episodes / method | 800 |
+| development success gate | ≥ 50% |
+| originating-cluster historical regression | 100%（不跳过 regression gate） |
+| held-out 用途 | `test`，仅最终报告，不参与 candidate promotion |
+| horizon | Goal 300+10；LIBERO-10 520+10，均为 OpenPI official contract |
+| latency | 每 episode 开启，11 个组件全部冻结进 manifest 和 rollout command |
+
+实现时发现并修复两个协议缺口：
+
+- 单 task campaign 虽支持 episode latency，但原 `prepare_libero_campaign.py` 没有把 `--record-latency` 和组件集合写进冻结 rollout command。现已把开关、组件、事件/汇总 artifact 约定同时写入 runtime manifest 和 preregistration。
+- 原 CLI 默认把 held-out 当 validation gate，可能让 seeds 1–20 反向影响 patch 选择。正式矩阵强制 `heldout_mode=test`，并显式启用 regression gate，保持最终测试隔离。
+
+真实安装包 dry-run 结果：四个 suite 各 10 个 task，每 task 最少 50 个可加载 init states；40 个 campaign、2000 个 development slots、800 个 held-out episodes/method；所有 seed partition 无重叠，40/40 horizon 为 official，latency 全开启。
+
+复现 dry-run（不写 campaign artifact）：
+
+```bash
+/home/pai/zxw/openpi_data/pi05_libero/venvs/zetta_libero_py311/bin/python \
+  scripts/evolution/prepare_liberopro_paper_campaigns.py \
+  --output-root /tmp/zetta-liberopro-paper-dry-run \
+  --runtime-python /home/pai/zxw/openpi_data/pi05_libero/venvs/zetta_libero_py311/bin/python \
+  --dry-run
+```
+
+本节只证明正式矩阵与运行入口可冻结、可恢复；尚未产生 40-task development 或 seeds 1–20 的正式成功率，不得作为论文复现实验结果。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
 
 ```text
-80 passed in 2.99s
+56 targeted tests passed in 9.81s
+40 campaigns / 2000 development slots / 800 held-out episodes per method: dry-run pass
 git diff --check: pass
 Python py_compile: pass
 ```
 
-目标测试覆盖 `tests/test_libero_latency.py`、`tests/runtime/test_policy_backend.py`、`tests/runtime/test_batch_scheduler.py`、`tests/test_libero_evolution_runtime.py`。
+本轮目标测试覆盖 `tests/test_liberopro_paper_campaign_matrix.py`、`tests/test_libero_latency.py`、`tests/test_libero_evolution_runtime.py` 和 `tests/test_evolution_protocol.py`；此前 runtime policy/batch 测试仍保留在上一轮 95 项验证中。
 
 LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整 Goal pilot 与四套件 latency profile）；二者 `score_countable=false`，没有伪装成官方结果或 matched comparison。对本日志单文件执行 `loopx check` 为 clean；全仓扫描只命中仓库既有源码/测试中的通用 `credential`、`private_ip` 字样，并未在本日志发现密钥或私有 API 地址。
 
@@ -213,4 +256,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
+- 正式矩阵当前只完成 dry-run；下一步须在最终提交 SHA 上 materialize 40 个 manifest，先执行 development baseline/故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。

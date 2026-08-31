@@ -27,6 +27,10 @@ from robots.libero.evolution_defaults import (  # noqa: E402
     privileged_evidence_enabled,
 )
 from robots.libero.run_evolution_rollout import LIBERO_RECOVERY_TOOLS  # noqa: E402
+from robots.libero.latency import (  # noqa: E402
+    DEFAULT_LATENCY_COMPONENTS,
+    parse_latency_components,
+)
 from robots.libero.runtime_devices import (  # noqa: E402
     parse_physical_gpus,
     preregister_device_contract,
@@ -354,6 +358,14 @@ def _rollout_command(
             str(args.max_recovery_actor_calls),
         ]
     )
+    if bool(getattr(args, "record_latency", True)):
+        command.extend(
+            [
+                "--record-latency",
+                "--latency-components",
+                str(args.latency_components),
+            ]
+        )
     command.extend(["--expected-task-language", str(task_contract["language"])])
     return command
 
@@ -441,6 +453,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     args.cluster_max_artifact_reads = int(
         getattr(args, "cluster_max_artifact_reads", 24)
     )
+    args.record_latency = bool(getattr(args, "record_latency", True))
+    latency_components = parse_latency_components(
+        getattr(args, "latency_components", None)
+    )
+    args.latency_components = ",".join(sorted(latency_components))
     if args.visual_overview_frames is None:
         args.visual_overview_frames = 25 if args.max_actions >= 400 else 17
     if not 5 <= int(args.visual_overview_frames) <= 64:
@@ -605,6 +622,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "reasoning_effort": args.reasoning_effort,
         "libero_privileged_evidence": privileged_evidence_enabled(args),
         "evaluation_horizon": horizon_contract,
+        "latency": {
+            "enabled": args.record_latency,
+            "components": sorted(latency_components),
+            "events_artifact": "latency/events.jsonl",
+            "summary_artifact": "latency/summary.json",
+        },
     }
     runtime["task_contract"] = task_contract
     atomic_write_json(output / "task-contract.json", task_contract, overwrite=False)
@@ -679,6 +702,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "reuse_rollout_parent_evidence": True,
         "runtime_device_contract": device_contract,
         "evaluation_horizon": horizon_contract,
+        "latency": runtime["latency"],
     }
     if schedule_provenance is not None:
         preregistration["schedule_provenance"] = schedule_provenance
@@ -686,7 +710,7 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     return preregistration
 
 
-def main() -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--campaign-id", required=True)
@@ -806,6 +830,17 @@ def main() -> int:
     )
     parser.add_argument("--actions-per-chunk", type=int, default=5)
     parser.add_argument(
+        "--record-latency",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="freeze per-component latency recording into every episode command",
+    )
+    parser.add_argument(
+        "--latency-components",
+        default=",".join(sorted(DEFAULT_LATENCY_COMPONENTS)),
+        help="comma-separated latency component allowlist",
+    )
+    parser.add_argument(
         "--visual-overview-frames",
         type=int,
         default=None,
@@ -843,7 +878,11 @@ def main() -> int:
         help_text="expose audited Critic-only LIBERO scalar evidence to Role1",
     )
     parser.add_argument("--max-recovery-actor-calls", type=int, default=4)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = _parser().parse_args()
     report = prepare(args)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
