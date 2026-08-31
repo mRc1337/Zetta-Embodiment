@@ -238,6 +238,25 @@ Goal-S 完整 horizon 另外记录 501 条事件：60 次 model inference 平均
 
 本节只证明正式矩阵与 40 个 manifest 已冻结、可恢复；尚未产生 40-task development 或 seeds 1–20 的正式成功率，不得作为论文复现实验结果。正式运行应从干净的 `cac81c3` source worktree 启动，以匹配 manifest 的 source revision。
 
+### 2026-08-31T15:44:43Z–15:51:00Z — development 首批次与共享 session 竞争
+
+启动前重新读取 LoopX experiment board，并对四条运行逐一执行 source revision fence。固定 source worktree 为 `cac81c398a741c670e1f0ba8e5fcc89faa204787`，结果均为 `admitted=true`、`source_clean=true`。manifest 中的绝对 runner 路径仍指向主 worktree；主 worktree 此时只比固定提交多本日志，`robots/libero`、`rollout_runtime`、`zetta`、`scripts/evolution` 与 `tests` 的树 diff 为空，且 `run_evolution_rollout.py` 两侧 SHA-256 同为 `b6f182146a46c2ab62702161accd1d95f6231ca427b37c297e2f4c35c0c4997c`。
+
+四个 task0 campaign 均已初始化可恢复的 `state` 与 `queue`，每个 queue 预登记 50 个 development jobs；本批只消费第一个固定 seed。seeds `66655`、`59451`、`85862`、`63675` 均不属于 held-out `1–20`。运行前在 LoopX board 写入四条 `status=running` 记录，终止后按真实结果更新；当前均为 `score_countable=false`，不可作为完整套件成绩。
+
+| setting | suite | seed | official horizon | 结果 | attempts | 说明 |
+|---|---|---:|---:|---|---:|---|
+| Goal-T | `libero_goal_task` | 66655 | 300+10 | `infra_invalid` | 2 | reset 返回 `SESSION_NOT_READY`，重试返回 `UNKNOWN_SESSION` |
+| Goal-S | `libero_goal_swap` | 59451 | 300+10 | `infra_invalid` | 2 | reset 返回 `SESSION_NOT_READY`，重试返回 `UNKNOWN_SESSION` |
+| LIBERO-10-T | `libero_10_task` | 85862 | 520+10 | `infra_invalid` | 2 | reset 返回 `SESSION_NOT_READY`，重试返回 `QUOTA_EXCEEDED` |
+| LIBERO-10-S | `libero_10_swap` | 63675 | 520+10 | `valid`, success=false | 1 | 完成 530 env actions，策略失败计入该 development episode |
+
+前三个任务的四路并发 reset 命中了同一共享 session 的创建窗口；campaign supervisor 将其归类为基础设施失败、没有污染策略分母，并为可重试项维护 append-only queue/state。首 seed 已达到 manifest 冻结的两次 infrastructure attempt 上限，继续它们前需要先修复 runtime session 建立/并发 admission，或通过显式恢复授权提高预算；不得直接把这三条记作失败样本。
+
+LIBERO-10-S 的有效 episode 记录 853 条 latency events。关键汇总：episode end-to-end 80.256 s；104 次 model inference 平均 235.485 ms、p95 278.559 ms；104 次 policy request end-to-end 平均 277.608 ms、p95 323.740 ms；104 个 chunk end-to-end 平均 572.229 ms、p95 627.018 ms；114 次 environment execution 平均 144.219 ms；114 次 Critic evaluation 平均 0.006 ms。Gen0 为 strict pure-VLA，Critic 是 no-op，Role1/recovery 未触发，因此没有这两类真实 API 延迟。
+
+本批暴露的后继动作是先消除共享 session reset 竞争，再对 Goal-T、Goal-S、LIBERO-10-T 做同 seed 可审计恢复；在此之前不运行 held-out seeds。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
