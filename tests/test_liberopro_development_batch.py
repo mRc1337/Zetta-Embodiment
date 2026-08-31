@@ -4,10 +4,14 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from scripts.evolution.run_liberopro_development_batch import (
     _aggregate,
     _pending_jobs,
+    _resolve_summary_output,
     _terminal_row,
+    _write_summary,
 )
 
 
@@ -113,3 +117,25 @@ def test_aggregate_weights_component_means_by_event_count() -> None:
         "count": 4,
         "weighted_mean_ms": 250.0,
     }
+
+
+def test_summary_output_must_stay_inside_matrix_root(tmp_path: Path) -> None:
+    matrix_root = tmp_path / "matrix"
+    matrix_root.mkdir()
+
+    assert _resolve_summary_output(matrix_root, Path("summaries/batch.json")) == (
+        matrix_root / "summaries" / "batch.json"
+    )
+    with pytest.raises(ValueError, match="must stay inside"):
+        _resolve_summary_output(matrix_root, Path("../outside.json"))
+
+
+def test_write_summary_is_create_only(tmp_path: Path) -> None:
+    output = tmp_path / "summaries" / "batch.json"
+    payload = {"status": "completed", "episodes": []}
+
+    _write_summary(output, payload)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == payload
+    with pytest.raises(FileExistsError):
+        _write_summary(output, payload)

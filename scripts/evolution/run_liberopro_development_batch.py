@@ -527,6 +527,25 @@ def _aggregate(episodes: Iterable[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _resolve_summary_output(matrix_root: Path, requested: Path) -> Path:
+    candidate = requested if requested.is_absolute() else matrix_root / requested
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(matrix_root)
+    except ValueError as error:
+        raise ValueError("--summary-output must stay inside --matrix-root") from error
+    if resolved.exists():
+        raise FileExistsError(f"summary output already exists: {resolved.name}")
+    return resolved
+
+
+def _write_summary(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x", encoding="utf-8") as stream:
+        json.dump(payload, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix-root", required=True, type=Path)
@@ -540,6 +559,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--task-id", type=int, default=0)
     parser.add_argument("--episodes-per-campaign", type=int, default=1)
     parser.add_argument("--model-id", default="RLinf-Pi05-LIBERO-SFT")
+    parser.add_argument(
+        "--summary-output",
+        type=Path,
+        help="write the completed compact JSON summary inside --matrix-root",
+    )
     parser.add_argument("--execute", action="store_true")
     return parser
 
@@ -553,6 +577,13 @@ def main() -> int:
     source_checkout = args.source_checkout.resolve()
     runtime_python = args.runtime_python.resolve()
     settings = tuple(args.settings or DEFAULT_SETTINGS)
+    if args.summary_output is not None and not args.execute:
+        raise ValueError("--summary-output requires --execute")
+    summary_output = (
+        _resolve_summary_output(matrix_root, args.summary_output)
+        if args.summary_output is not None
+        else None
+    )
 
     board = _read_board(loopx_bin=args.loopx_bin, goal_id=args.goal_id, project=project)
     fence = _source_fence(
@@ -688,22 +719,19 @@ def main() -> int:
             )
             episodes.append(_compact_episode(batch, job, record, latency, integrity))
 
-    print(
-        json.dumps(
-            {
-                "schema_version": "zetta-liberopro-development-batch-v1",
-                "status": "completed",
-                "board_run_count_before": (board.get("summary") or {}).get("run_count"),
-                "source_admitted": fence.get("admitted"),
-                "runtime_env_ranks_healthy": health.get("env_ranks_healthy"),
-                "lane_reports": lane_reports,
-                "episodes": episodes,
-                "aggregate": _aggregate(episodes),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    summary = {
+        "schema_version": "zetta-liberopro-development-batch-v1",
+        "status": "completed",
+        "board_run_count_before": (board.get("summary") or {}).get("run_count"),
+        "source_admitted": fence.get("admitted"),
+        "runtime_env_ranks_healthy": health.get("env_ranks_healthy"),
+        "lane_reports": lane_reports,
+        "episodes": episodes,
+        "aggregate": _aggregate(episodes),
+    }
+    if summary_output is not None:
+        _write_summary(summary_output, summary)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 
 
