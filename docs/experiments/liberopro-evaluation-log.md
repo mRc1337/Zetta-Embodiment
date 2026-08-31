@@ -224,6 +224,8 @@ Goal-S 完整 horizon 另外记录 501 条事件：60 次 model inference 平均
 
 真实安装包 dry-run 结果：四个 suite 各 10 个 task，每 task 最少 50 个可加载 init states；40 个 campaign、2000 个 development slots、800 个 held-out episodes/method；所有 seed partition 无重叠，40/40 horizon 为 official，latency 全开启。
 
+代码提交并推送为 `cac81c398a741c670e1f0ba8e5fcc89faa204787` 后，已在本地结果目录 materialize 全部 40 个 campaign manifest：`/home/pai/zxw/openpi_data/pi05_libero/results/liberopro_paper_v1/cac81c398a741c670e1f0ba8e5fcc89faa204787`。`campaign-plan.json` 的文件 SHA-256 为 `9ad682ef0755ea1b43a1b165cf0d9fd2b485d99f3aa30b90ff2a07f925d013e8`；再次用 `--resume` 执行得到 40/40 `prepared`，证明恢复路径会校验并复用相同 manifest。
+
 复现 dry-run（不写 campaign artifact）：
 
 ```bash
@@ -234,7 +236,7 @@ Goal-S 完整 horizon 另外记录 501 条事件：60 次 model inference 平均
   --dry-run
 ```
 
-本节只证明正式矩阵与运行入口可冻结、可恢复；尚未产生 40-task development 或 seeds 1–20 的正式成功率，不得作为论文复现实验结果。
+本节只证明正式矩阵与 40 个 manifest 已冻结、可恢复；尚未产生 40-task development 或 seeds 1–20 的正式成功率，不得作为论文复现实验结果。正式运行应从干净的 `cac81c3` source worktree 启动，以匹配 manifest 的 source revision。
 
 ## 最终验证
 
@@ -256,5 +258,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
-- 正式矩阵当前只完成 dry-run；下一步须在最终提交 SHA 上 materialize 40 个 manifest，先执行 development baseline/故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
+- 正式矩阵已在 `cac81c3` 上 materialize；下一步须从该 SHA 的干净 source worktree 执行 development baseline/故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
