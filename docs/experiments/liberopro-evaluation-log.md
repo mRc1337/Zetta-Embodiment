@@ -257,6 +257,34 @@ LIBERO-10-S 的有效 episode 记录 853 条 latency events。关键汇总：epi
 
 本批暴露的后继动作是先消除共享 session reset 竞争，再对 Goal-T、Goal-S、LIBERO-10-T 做同 seed 可审计恢复；在此之前不运行 held-out seeds。
 
+### 2026-08-31T15:54:28Z–16:02:00Z — session 隔离修复与四路并发恢复
+
+根因是 `client_session_key` 原先只包含 campaign 内局部唯一的 `logical_id + attempt_index`。四个 task0 campaign 都从 `g0000-rollout-000/attempt-0` 开始，因此 Gateway 按设计执行幂等合并，把四个不同 suite 的请求错误复用为同一 session。修复提交 `d0463d0c249164a5490a4c5cf36bf43a32abc153` 将 key 绑定到 suite、task、seed、generation、logical id、attempt，并加入 attempt 输出目录的不可逆摘要；相同 attempt 仍稳定，独立 campaign 不再冲突，本地绝对路径不会出现在 key 中。
+
+修复通过 124 项定向测试。随后从 `d0463d0` 建立干净 detached source worktree，source revision fence 返回 `admitted=true`、`source_clean=true`，重新物化并用 `--resume` 审计 40 个 campaign。新 `campaign-plan.json` SHA-256 为 `a705f054f1a6d1374442a77bf0c30ab9c11c7d4713e2fd08bbb5e4978a187414`；协议规模保持 40 tasks、2000 development slots/round、800 held-out episodes/method，seed partition 与 official horizon 检查全部通过。
+
+用与上轮相同的四个 development seeds 并发执行后，4/4 均被 campaign supervisor 接受为 `valid`，`infra_invalid=0`；每个 campaign 保留 49 个 pending jobs，可从现有 state/queue 恢复。四条 episode 均未成功，所以当前首批样本是 0/4；它只证明修复后的正式执行链和冻结延迟记录有效，不能外推为套件成功率。
+
+| setting | seed | env actions | success | latency events | elapsed |
+|---|---:|---:|---|---:|---:|
+| Goal-T | 66655 | 311 | false | 501 | 52.155 s |
+| Goal-S | 59451 | 311 | false | 501 | 54.059 s |
+| LIBERO-10-T | 85862 | 531 | false | 853 | 84.372 s |
+| LIBERO-10-S | 63675 | 531 | false | 853 | 69.883 s |
+
+逐 episode 核心推理延迟（ms；`mean / p95`）：
+
+| setting | model inference | policy request e2e | chunk e2e | environment execution | episode e2e |
+|---|---:|---:|---:|---:|---:|
+| Goal-T | 220.534 / 264.985 | 265.366 / 316.292 | 564.284 / 616.511 | 139.649 / 178.183 | 52156.060 |
+| Goal-S | 218.212 / 247.808 | 262.184 / 294.303 | 580.923 / 659.882 | 147.807 / 212.301 | 54060.935 |
+| LIBERO-10-T | 216.790 / 252.910 | 261.060 / 303.139 | 573.775 / 626.746 | 155.697 / 192.872 | 84372.937 |
+| LIBERO-10-S | 214.474 / 250.299 | 260.211 / 296.705 | 565.116 / 615.014 | 153.260 / 196.781 | 69883.895 |
+
+四条 episode 共 2708 条 latency events；按所有事件聚合：model inference 328 次，平均 217.001 ms、p95 252.298 ms；policy request end-to-end 平均 261.784 ms、p95 298.994 ms；chunk end-to-end 平均 570.601 ms、p95 626.716 ms；environment execution 368 次，平均 150.389 ms、p95 194.262 ms；observation preprocess 平均 2.852 ms；policy queue wait 平均 20.906 ms；action decode/postprocess 平均 0.168 ms。Critic evaluation 368 次、平均 0.008 ms，仍是未配置 Critic 的 no-op；Role1/recovery 均未触发。
+
+LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_only` 行：`official_result_present=true`。用当前 episode record 与 runtime device assignment 执行 integrity reducer，返回 `runtime_isolation_not_attested`（现有 artifact schema 不包含 benchmark-toolkit 要求的 runner 隔离声明），故 `integrity_qualified=false`、`score_countable=false`；没有把缺少 attestation 误报成可计数成绩。held-out seeds `1–20` 仍未使用。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
