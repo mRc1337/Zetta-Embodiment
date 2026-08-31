@@ -15,7 +15,7 @@
 | 项目 | 值 |
 |---|---|
 | 记录开始（UTC） | 2026-08-31T10:06:13Z |
-| Zetta commit | `3512e7ccb9ed416f30d92fafb3ba5e037436544d` |
+| Zetta formal-run source | `d0463d0c249164a5490a4c5cf36bf43a32abc153`（日志提交位于后续 `main`） |
 | Python | 3.11.15 |
 | PyTorch | 2.7.1+cu126 |
 | MuJoCo / robosuite | 3.3.1 / 1.4.1 |
@@ -23,7 +23,7 @@
 | checkpoint | `/home/pai/zxw/openpi_data/pi05_libero/checkpoints/RLinf-Pi05-LIBERO-SFT` |
 | runtime venv | `/home/pai/zxw/openpi_data/pi05_libero/venvs/zetta_libero_py311` |
 | benchmark source | `/home/pai/zxw/LIBERO-PRO/libero/libero` |
-| Ray 临时目录 | `/tmp/zr2`（规避 Linux AF_UNIX 107 字节路径限制） |
+| Ray 临时目录 | `/tmp/zr4`（规避 Linux AF_UNIX 107 字节路径限制） |
 | EGL vendor 描述 | `scripts/evolution/nvidia-egl-vendor.json` |
 
 ## 实验时间线
@@ -285,6 +285,32 @@ LIBERO-10-S 的有效 episode 记录 853 条 latency events。关键汇总：epi
 
 LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_only` 行：`official_result_present=true`。用当前 episode record 与 runtime device assignment 执行 integrity reducer，返回 `runtime_isolation_not_attested`（现有 artifact schema 不包含 benchmark-toolkit 要求的 runner 隔离声明），故 `integrity_qualified=false`、`score_countable=false`；没有把缺少 attestation 误报成可计数成绩。held-out seeds `1–20` 仍未使用。
 
+### 2026-08-31T16:12:36Z–16:14:57Z — development 第二批四路并发
+
+启动前再次读取 LoopX experiment board，并对固定的 `d0463d0c249164a5490a4c5cf36bf43a32abc153` clean source worktree 执行 source revision fence；结果为 `admitted=true`、`source_clean=true`。Gateway `/healthz` 返回 4/4 EnvWorker 健康，且主仓 `origin/main` 与本地均为日志提交 `07bb6146c32d8116d97b9147caa6f45c8e1281eb`。本批继续四个 task0 的 `g0000-rollout-001`，未触碰 held-out seeds `1–20`。
+
+四路 worker 均以 exit 0 结束，supervisor 分别 ingest 1 条记录；4/4 为 `valid`、`infra_invalid=0`。每个 task0 campaign 的状态现为 2 completed、48 pending、0 running。本批仍为 0/4 success；累计两个批次为 8 条有效 development episode、0/8 success，仅代表 task0 当前样本，不是四套件成绩。
+
+| setting | seed | env actions | success | latency events | elapsed |
+|---|---:|---:|---|---:|---:|
+| Goal-T | 41720 | 311 | false | 501 | 48.718 s |
+| Goal-S | 16804 | 311 | false | 501 | 42.500 s |
+| LIBERO-10-T | 94683 | 531 | false | 853 | 76.366 s |
+| LIBERO-10-S | 62712 | 531 | false | 853 | 79.766 s |
+
+逐 episode 核心推理延迟（ms；`mean / p95`）：
+
+| setting | model inference | policy request e2e | chunk e2e | environment execution | episode e2e |
+|---|---:|---:|---:|---:|---:|
+| Goal-T | 216.895 / 258.403 | 260.444 / 305.550 | 551.621 / 617.450 | 135.653 / 181.597 | 48719.574 |
+| Goal-S | 210.939 / 240.358 | 254.925 / 287.556 | 573.333 / 666.131 | 151.813 / 212.709 | 42501.184 |
+| LIBERO-10-T | 206.100 / 251.808 | 249.123 / 296.050 | 556.766 / 615.785 | 152.583 / 190.584 | 76367.494 |
+| LIBERO-10-S | 208.475 / 247.569 | 250.937 / 297.121 | 548.528 / 615.923 | 146.398 / 180.861 | 79767.141 |
+
+本批共 2708 条 latency events；按组件事件数加权的均值为：model inference 209.713 ms、policy request end-to-end 252.830 ms、chunk end-to-end 556.243 ms、environment execution 147.300 ms、observation preprocess 2.742 ms、policy queue wait 20.791 ms、action decode/postprocess 0.160 ms。Critic evaluation 368 次、平均 0.007 ms，仍是 strict pure-VLA 下的 no-op；Role1/recovery 均未触发。
+
+累计两个修复后批次共 5416 条 latency events；model inference 656 次、平均 213.357 ms，policy request end-to-end 平均 257.307 ms，chunk end-to-end 平均 563.422 ms，environment execution 736 次、平均 148.844 ms，Critic evaluation 平均 0.008 ms。四条新运行已从 `running` 更新为 terminal `inventory_only`；完整性 reducer 仍返回 `runtime_isolation_not_attested`，因此 `official_result_present=true` 但 `integrity_qualified=false`、`score_countable=false`。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
@@ -305,5 +331,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
-- 正式矩阵已在 `cac81c3` 上 materialize；下一步须从该 SHA 的干净 source worktree 执行 development baseline/故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
+- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 2/50 个 development seeds，下一步继续其余 48 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
