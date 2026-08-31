@@ -410,6 +410,55 @@ LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_
 
 固定 runner 的四批累计为 56 条有效 development episode、0/56 success、37912 条 latency events；model inference 4592 次、加权平均 203.976 ms，policy request end-to-end 平均 246.967 ms，chunk end-to-end 平均 540.373 ms，environment execution 5152 次、平均 140.751 ms，Critic evaluation 平均约 0.006 ms。LoopX board 为 62/62 terminal，其中本批 32 条均 `official_result_present=true`；所有 62 条仍为 0 score-countable，完整性分类继续是 `runtime_isolation_not_attested`。这仍只覆盖四个 task0，不能作为四套件最终成功率。
 
+### 2026-08-31T17:04Z–17:16Z — development 第五批 32 条实跑
+
+本批继续固定 runner `d0463d0c249164a5490a4c5cf36bf43a32abc153` 和相同 campaign plan。启动前 LoopX board 为 62/62 terminal，source revision fence 为 clean/admitted，Gateway 4/4 EnvWorker healthy、`heartbeat_failed=0`；dry-run 对 32 个候选逐一预览 running 行并确认均为 development seed，和 held-out `1–20` 无交集。
+
+四条 worker lane 各完成 8 条，supervisor 接受 32/32，`infra_invalid=0`、success 0/32；四个 task0 queue 均达到 22 completed、28 pending、0 running、0 failed。运行期间 Goal 两条 lane 先完成，两个 LIBERO-10 lane 的 worker PID 随 episode 正常变化，Gateway 心跳持续增长且无失败，未发现静默卡死或 session 冲突。
+
+逐 episode 核心推理延迟（ms；`mean / p95`）：
+
+| setting / seed | logical id | model inference | policy request e2e | chunk e2e | environment execution | Critic | elapsed (s) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Goal-T / 66670 | `g0000-rollout-015` | 188.567 / 218.038 | 227.959 / 259.526 | 479.114 / 528.922 | 114.449 / 152.419 | 0.006 / 0.008 | 36.164 |
+| Goal-T / 66556 | `g0000-rollout-013` | 201.247 / 235.105 | 245.538 / 292.286 | 524.235 / 598.659 | 125.966 / 170.365 | 0.006 / 0.007 | 38.729 |
+| Goal-T / 1480 | `g0000-rollout-016` | 192.820 / 264.332 | 232.910 / 302.389 | 495.955 / 558.812 | 118.486 / 154.975 | 0.006 / 0.007 | 37.153 |
+| Goal-T / 57247 | `g0000-rollout-017` | 203.514 / 257.410 | 247.967 / 299.867 | 522.915 / 599.594 | 123.234 / 169.631 | 0.006 / 0.008 | 38.924 |
+| Goal-T / 66321 | `g0000-rollout-020` | 188.563 / 225.791 | 228.178 / 264.695 | 491.961 / 555.351 | 119.723 / 166.747 | 0.009 / 0.008 | 36.698 |
+| Goal-T / 43478 | `g0000-rollout-018` | 196.302 / 232.549 | 237.057 / 272.097 | 502.042 / 578.306 | 122.271 / 158.295 | 0.006 / 0.008 | 37.459 |
+| Goal-T / 65248 | `g0000-rollout-019` | 207.143 / 275.290 | 248.394 / 321.446 | 527.242 / 629.018 | 128.826 / 183.685 | 0.006 / 0.008 | 39.220 |
+| Goal-T / 28927 | `g0000-rollout-022` | 196.301 / 218.253 | 237.470 / 265.006 | 512.191 / 604.963 | 128.164 / 167.742 | 0.006 / 0.012 | 39.165 |
+| Goal-S / 68914 | `g0000-rollout-015` | 193.544 / 239.572 | 233.895 / 279.659 | 520.619 / 595.490 | 133.338 / 194.522 | 0.006 / 0.008 | 39.117 |
+| Goal-S / 92767 | `g0000-rollout-014` | 196.873 / 229.926 | 240.109 / 279.449 | 545.609 / 613.498 | 145.494 / 216.603 | 0.006 / 0.009 | 40.485 |
+| Goal-S / 8655 | `g0000-rollout-016` | 190.770 / 218.767 | 232.184 / 270.673 | 513.587 / 582.379 | 128.749 / 190.497 | 0.006 / 0.007 | 38.429 |
+| Goal-S / 31853 | `g0000-rollout-017` | 192.888 / 238.203 | 236.522 / 287.000 | 532.372 / 603.126 | 136.769 / 188.476 | 0.006 / 0.007 | 39.700 |
+| Goal-S / 78225 | `g0000-rollout-019` | 192.074 / 240.075 | 233.341 / 279.178 | 512.125 / 583.363 | 127.602 / 174.402 | 0.006 / 0.007 | 38.453 |
+| Goal-S / 7476 | `g0000-rollout-018` | 202.438 / 268.689 | 241.731 / 314.678 | 531.070 / 600.111 | 136.290 / 192.322 | 0.006 / 0.008 | 45.911 |
+| Goal-S / 11480 | `g0000-rollout-022` | 201.417 / 245.560 | 247.101 / 297.737 | 569.013 / 662.407 | 150.374 / 224.832 | 0.006 / 0.008 | 42.104 |
+| Goal-S / 44644 | `g0000-rollout-021` | 201.772 / 256.584 | 243.882 / 297.468 | 537.469 / 603.703 | 131.326 / 184.915 | 0.007 / 0.009 | 40.349 |
+| LIBERO-10-T / 58861 | `g0000-rollout-014` | 191.572 / 235.185 | 233.777 / 283.283 | 521.261 / 591.448 | 138.293 / 176.764 | 0.007 / 0.008 | 65.678 |
+| LIBERO-10-T / 47963 | `g0000-rollout-016` | 194.965 / 228.518 | 237.021 / 287.303 | 531.495 / 617.118 | 145.773 / 192.310 | 0.007 / 0.009 | 76.148 |
+| LIBERO-10-T / 32609 | `g0000-rollout-015` | 193.297 / 239.773 | 234.161 / 278.625 | 520.435 / 617.543 | 141.697 / 195.588 | 0.017 / 0.008 | 64.911 |
+| LIBERO-10-T / 69794 | `g0000-rollout-017` | 201.731 / 272.966 | 242.989 / 320.164 | 539.111 / 630.062 | 145.868 / 175.322 | 0.008 / 0.009 | 67.037 |
+| LIBERO-10-T / 98633 | `g0000-rollout-018` | 206.885 / 275.710 | 250.821 / 320.495 | 548.734 / 623.013 | 145.642 / 184.165 | 0.007 / 0.009 | 68.838 |
+| LIBERO-10-T / 39888 | `g0000-rollout-019` | 204.109 / 232.953 | 246.756 / 293.133 | 546.538 / 624.954 | 149.572 / 187.648 | 0.007 / 0.008 | 67.460 |
+| LIBERO-10-T / 79928 | `g0000-rollout-020` | 197.866 / 236.827 | 238.076 / 281.327 | 527.391 / 615.560 | 144.515 / 191.070 | 0.006 / 0.007 | 65.600 |
+| LIBERO-10-T / 89438 | `g0000-rollout-021` | 194.338 / 223.419 | 235.112 / 271.760 | 518.669 / 572.246 | 137.819 / 176.296 | 0.006 / 0.008 | 64.133 |
+| LIBERO-10-S / 50286 | `g0000-rollout-014` | 198.057 / 232.123 | 240.068 / 279.876 | 527.613 / 595.709 | 139.735 / 186.687 | 0.007 / 0.008 | 66.245 |
+| LIBERO-10-S / 32971 | `g0000-rollout-015` | 198.493 / 244.326 | 241.302 / 301.340 | 527.173 / 600.677 | 135.962 / 183.864 | 0.007 / 0.008 | 65.207 |
+| LIBERO-10-S / 52868 | `g0000-rollout-017` | 192.646 / 248.139 | 235.423 / 293.503 | 529.377 / 614.936 | 150.302 / 207.110 | 0.006 / 0.008 | 66.069 |
+| LIBERO-10-S / 53071 | `g0000-rollout-016` | 204.250 / 270.250 | 244.800 / 309.522 | 532.417 / 620.969 | 134.292 / 172.486 | 0.006 / 0.008 | 65.586 |
+| LIBERO-10-S / 86121 | `g0000-rollout-019` | 202.865 / 251.978 | 247.019 / 296.510 | 538.993 / 619.482 | 138.404 / 174.034 | 0.006 / 0.008 | 66.994 |
+| LIBERO-10-S / 56617 | `g0000-rollout-018` | 211.863 / 264.201 | 254.424 / 305.681 | 555.087 / 645.662 | 148.715 / 196.476 | 0.006 / 0.008 | 68.262 |
+| LIBERO-10-S / 98709 | `g0000-rollout-020` | 203.269 / 261.371 | 243.394 / 302.712 | 521.032 / 598.545 | 137.399 / 163.544 | 0.007 / 0.008 | 64.623 |
+| LIBERO-10-S / 43402 | `g0000-rollout-021` | 197.727 / 228.071 | 237.875 / 273.660 | 525.417 / 579.449 | 139.458 / 183.434 | 0.006 / 0.007 | 64.914 |
+
+本批共 21664 条 latency events；按组件事件数加权：model inference 2624 次、平均 198.530 ms，policy request end-to-end 2624 次、平均 240.323 ms，chunk end-to-end 2624 次、平均 527.503 ms，environment execution 2944 次、平均 137.278 ms，Critic evaluation 2944 次、平均 0.007 ms。Critic 仍为 strict pure-VLA 下的 no-op，Role1/recovery 未触发。
+
+固定 runner 的五批累计为 88 条有效 development episode、0/88 success、59576 条 latency events；model inference 7216 次、加权平均 201.996 ms，policy request end-to-end 平均 244.551 ms，chunk end-to-end 平均 535.693 ms，environment execution 8096 次、平均 139.488 ms，Critic evaluation 平均约 0.006 ms。LoopX board 为 94/94 terminal，本批 32 条均 `official_result_present=true`，0 条 score-countable；完整性分类仍是 `runtime_isolation_not_attested`。
+
+本轮唯一记录处理问题是编排器终态 JSON 超过交互输出上限而被截断。解决方式是先通过 LoopX artifact classifier 将 `summary.json` 显式限定为 compact/public artifact，再只读取 32 个 latency summary 的聚合字段重建表格；没有读取轨迹、视频、privileged state 或 worker 日志，也未把本地绝对路径写入公开日志。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
@@ -417,7 +466,7 @@ LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_
 ```text
 56 targeted tests passed in 9.81s
 76 current targeted tests passed in 11.61s
-60 post-batch targeted tests passed in 8.20s
+60 post-fifth-batch targeted tests passed in 10.32s
 40 campaigns / 2000 development slots / 800 held-out episodes per method: dry-run pass
 git diff --check: pass
 Python py_compile: pass
@@ -432,5 +481,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
-- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 14/50 个 development seeds，下一步继续其余 36 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
+- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 22/50 个 development seeds，下一步继续其余 28 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
