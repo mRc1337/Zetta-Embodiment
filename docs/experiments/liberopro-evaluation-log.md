@@ -311,12 +311,65 @@ LoopX experiment board 为修复后四条运行保留独立 terminal `inventory_
 
 累计两个修复后批次共 5416 条 latency events；model inference 656 次、平均 213.357 ms，policy request end-to-end 平均 257.307 ms，chunk end-to-end 平均 563.422 ms，environment execution 736 次、平均 148.844 ms，Critic evaluation 平均 0.008 ms。四条新运行已从 `running` 更新为 terminal `inventory_only`；完整性 reducer 仍返回 `runtime_isolation_not_attested`，因此 `official_result_present=true` 但 `integrity_qualified=false`、`score_countable=false`。
 
+### 2026-08-31T16:30Z–16:38Z — development 第三批批量编排与 16 条实跑
+
+为消除每轮手工编排四条 episode 的吞吐瓶颈，新增 `scripts/evolution/run_liberopro_development_batch.py`。该入口在默认 dry-run 下依次读取 experiment board、执行固定 runner revision fence、检查 Gateway 健康状态、按 queue 实际 claim 顺序选择任务并预览 running 行；仅显式 `--execute` 时才预登记全部 run、按 suite 建立四条并发 lane、每条 lane 串行消费指定数量的 development jobs、调用 supervisor `resume` ingest，并将同一批 run_id 更新为 terminal。它只输出 compact episode/latency 聚合，不输出轨迹、视频或本地 artifact 路径。
+
+本批先以 `--episodes-per-campaign 4` 运行四个 task0，共 16 条 episode。启动前 experiment board 为 14 条 terminal；固定 `d0463d0c249164a5490a4c5cf36bf43a32abc153` source revision fence 为 `admitted=true`、`source_clean=true`，Gateway 为 4/4 EnvWorker healthy。一次错误的预检曾把仅含后续日志/编排提交的当前 `main` 当作 observed runner revision，fence 按设计返回 `observed_reference_revision_mismatch`；修正为从冻结 campaign manifest 读取 `code_commit=d0463d0...` 后通过，实际 runner 未切换到主分支。
+
+16 条 run 在 worker 启动前全部登记为 `running`。四路 worker 均完成 4 条，supervisor 各 ingest 4 条，合计 16/16 `valid`、0 `infra_invalid`、0 success。四个 task0 queue 均达到 6 completed、44 pending、0 running、0 failed；所有已执行 seed 与 held-out `1–20` 的交集为空。
+
+| setting | logical id | seed | success | latency events | elapsed (s) |
+|---|---|---:|---|---:|---:|
+| Goal-T | `g0000-rollout-002` | 67983 | false | 501 | 39.072 |
+| Goal-T | `g0000-rollout-003` | 98170 | false | 501 | 39.810 |
+| Goal-T | `g0000-rollout-005` | 28209 | false | 501 | 39.941 |
+| Goal-T | `g0000-rollout-004` | 23414 | false | 501 | 39.518 |
+| Goal-S | `g0000-rollout-003` | 53128 | false | 501 | 47.981 |
+| Goal-S | `g0000-rollout-002` | 81868 | false | 501 | 41.618 |
+| Goal-S | `g0000-rollout-004` | 359 | false | 501 | 40.482 |
+| Goal-S | `g0000-rollout-006` | 51440 | false | 501 | 40.105 |
+| LIBERO-10-T | `g0000-rollout-002` | 43554 | false | 853 | 76.659 |
+| LIBERO-10-T | `g0000-rollout-003` | 38059 | false | 853 | 68.910 |
+| LIBERO-10-T | `g0000-rollout-004` | 91107 | false | 853 | 67.396 |
+| LIBERO-10-T | `g0000-rollout-006` | 54036 | false | 853 | 67.219 |
+| LIBERO-10-S | `g0000-rollout-002` | 41480 | false | 853 | 69.340 |
+| LIBERO-10-S | `g0000-rollout-003` | 14065 | false | 853 | 68.387 |
+| LIBERO-10-S | `g0000-rollout-004` | 756 | false | 853 | 66.494 |
+| LIBERO-10-S | `g0000-rollout-005` | 20238 | false | 853 | 65.553 |
+
+逐 episode 核心推理延迟（ms；`mean / p95`）：
+
+| setting / seed | model inference | policy request e2e | chunk e2e | environment execution | Critic |
+|---|---:|---:|---:|---:|---:|
+| Goal-T / 67983 | 204.842 / 250.615 | 246.773 / 290.683 | 526.295 / 603.079 | 129.212 / 179.913 | 0.006 / 0.008 |
+| Goal-T / 98170 | 206.640 / 270.621 | 252.264 / 319.909 | 535.860 / 618.915 | 131.301 / 167.924 | 0.007 / 0.009 |
+| Goal-T / 28209 | 202.970 / 237.937 | 244.297 / 277.322 | 531.397 / 596.810 | 134.402 / 175.016 | 0.007 / 0.008 |
+| Goal-T / 23414 | 203.009 / 269.684 | 246.199 / 313.984 | 526.615 / 607.787 | 126.394 / 178.311 | 0.006 / 0.008 |
+| Goal-S / 53128 | 204.141 / 264.599 | 248.226 / 309.846 | 532.403 / 599.273 | 126.109 / 168.699 | 0.006 / 0.008 |
+| Goal-S / 81868 | 216.195 / 280.215 | 260.029 / 324.214 | 557.610 / 657.501 | 136.406 / 187.407 | 0.007 / 0.008 |
+| Goal-S / 359 | 211.064 / 260.702 | 253.408 / 302.779 | 538.536 / 606.543 | 127.586 / 170.124 | 0.006 / 0.008 |
+| Goal-S / 51440 | 202.858 / 245.832 | 246.295 / 287.783 | 536.645 / 608.416 | 132.599 / 179.358 | 0.006 / 0.008 |
+| LIBERO-10-T / 43554 | 203.780 / 247.559 | 249.084 / 304.945 | 557.254 / 639.529 | 149.841 / 196.414 | 0.009 / 0.009 |
+| LIBERO-10-T / 38059 | 209.470 / 263.522 | 252.646 / 311.370 | 557.908 / 641.919 | 150.310 / 190.259 | 0.007 / 0.009 |
+| LIBERO-10-T / 91107 | 204.185 / 248.228 | 248.827 / 306.022 | 547.694 / 624.452 | 148.378 / 184.839 | 0.006 / 0.008 |
+| LIBERO-10-T / 54036 | 206.392 / 272.276 | 247.947 / 313.338 | 546.861 / 650.911 | 150.745 / 208.561 | 0.006 / 0.008 |
+| LIBERO-10-S / 41480 | 207.458 / 259.678 | 251.387 / 304.832 | 563.501 / 665.576 | 156.563 / 203.303 | 0.006 / 0.008 |
+| LIBERO-10-S / 14065 | 211.312 / 257.389 | 253.656 / 298.813 | 551.669 / 639.557 | 140.083 / 167.750 | 0.007 / 0.008 |
+| LIBERO-10-S / 756 | 203.975 / 246.511 | 246.478 / 299.643 | 538.346 / 597.822 | 146.361 / 193.400 | 0.006 / 0.008 |
+| LIBERO-10-S / 20238 | 199.332 / 234.903 | 240.729 / 275.123 | 530.798 / 600.117 | 144.212 / 184.836 | 0.006 / 0.008 |
+
+本批共 10832 条 latency events；按组件事件数加权：model inference 1312 次、平均 206.004 ms，policy request end-to-end 1312 次、平均 249.152 ms，chunk end-to-end 1312 次、平均 544.284 ms，environment execution 1472 次、平均 141.536 ms，Critic evaluation 1472 次、平均 0.007 ms。Critic 仍为 strict pure-VLA 下的 no-op，Role1/recovery 未触发。
+
+修复后累计为 24 条有效 development episode、0/24 success、16248 条 latency events；model inference 1968 次、加权平均 208.455 ms，policy request end-to-end 平均 251.870 ms，chunk end-to-end 平均 550.663 ms，environment execution 2208 次、平均 143.972 ms。LoopX board 当前 30/30 terminal，其中本批 16 条均为 `official_result_present=true`；integrity reducer 仍统一返回 `runtime_isolation_not_attested`，所以 0 条 score-countable。该结果仍仅覆盖四个 task0，不是套件最终成绩。
+
 ## 最终验证
 
 2026-08-31 再次从安装后的 `liberopro` API 创建四个 suite，并对每个 task 调用 `get_task_init_states`：40/40 BDDL 存在，四套件各 10 个任务，每个任务均反序列化得到 50 个非空 init states。
 
 ```text
 56 targeted tests passed in 9.81s
+76 current targeted tests passed in 11.61s
 40 campaigns / 2000 development slots / 800 held-out episodes per method: dry-run pass
 git diff --check: pass
 Python py_compile: pass
@@ -331,5 +384,5 @@ LoopX experiment board 已写入 2 个 terminal、`diagnostic_only` 行（完整
 - 已完成两个完整 Goal horizon episode，但 0/2 只是链路验证样本，不代表 40-task benchmark 成绩；要报告套件成功率仍需按固定 seed 覆盖全部任务并给出分母。
 - 四套件的 60-step 运行只用于比较延迟，不得计入正式成功率。
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
-- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 2/50 个 development seeds，下一步继续其余 48 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
+- 正式矩阵已在 `d0463d0` clean source worktree 上恢复运行；四个 task0 各完成 6/50 个 development seeds，下一步继续其余 44 seeds，再扩展其余 36 个任务并进入故障聚类与 patch 流程，最后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
