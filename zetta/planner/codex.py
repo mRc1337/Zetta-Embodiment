@@ -258,7 +258,10 @@ class CodexPlanner:
 
         return PlannerResult(
             finish_result=recorder.finish_result,
-            messages=[{"role": "codex_sdk", "content": text}],
+            messages=_planner_messages(
+                final_response=recorder.final_response,
+                rendered_text=text,
+            ),
             stats={
                 "backend": "codex_sdk",
                 "model": self._model,
@@ -518,6 +521,25 @@ def _sandbox_from_env() -> Any:
             "ZETTA_CODEX_SANDBOX must be read-only, workspace-write, or full-access; "
             f"got {requested!r}"
         ) from exc
+
+
+def _planner_messages(
+    *, final_response: str | None, rendered_text: str
+) -> list[dict[str, str]]:
+    """Expose only the SDK final answer to strict downstream consumers.
+
+    ``rendered_text`` contains audit-oriented transport markers, reasoning
+    summaries, and tool-call renderings in addition to the final answer.  It is
+    retained in the normal Codex output artifacts, but must not be presented as
+    one assistant message: strict consumers such as Role1 correctly reject that
+    mixed stream as extra text around their JSON decision.
+
+    Older SDK transports may omit an ``agentMessage`` event.  Preserve the
+    historical rendered-stream fallback for that compatibility case.
+    """
+
+    content = final_response if final_response is not None else rendered_text
+    return [{"role": "codex_sdk", "content": content}]
 
 
 # ---------------------------------------------------------------------------
