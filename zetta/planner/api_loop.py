@@ -12,6 +12,7 @@ import asyncio
 import base64
 import dataclasses
 import json
+import os
 import queue
 from typing import Any
 
@@ -33,6 +34,7 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from zetta.cli.tui import QUIT_TOKENS
 from zetta.planner.base import PlannerResult
+from zetta.planner.provider_proxy import BROKER_URL_ENV
 from zetta.tools.toolkit import Toolkit
 from zetta.utils.logging import get_logger
 
@@ -325,6 +327,25 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
         and base.__name__ == "AnthropicModel"
         for base in type(model).__mro__
     )
+    openai_responses_model = any(
+        base.__module__ == "pydantic_ai.models.openai"
+        and base.__name__ == "OpenAIResponsesModel"
+        for base in type(model).__mro__
+    )
+    if openai_responses_model and os.environ.get(BROKER_URL_ENV, "").strip():
+        from pydantic_ai.models.openai import OpenAIResponsesModelSettings
+
+        # A broker may route consecutive tool turns through an OpenAI-compatible
+        # gateway that cannot decrypt opaque reasoning items created by the
+        # previous upstream request.  Replaying those items then fails with
+        # ``invalid_encrypted_content`` before Role1 can return a decision.
+        # Function-call IDs and their outputs remain in the portable history,
+        # so disable only provider-owned item IDs for brokered Responses calls.
+        return OpenAIResponsesModelSettings(
+            max_tokens=max_tokens,
+            openai_send_reasoning_ids=False,
+            openai_reasoning_context="current_turn",
+        )
     if not anthropic_model:
         return ModelSettings(max_tokens=max_tokens)
 

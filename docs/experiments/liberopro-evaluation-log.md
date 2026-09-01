@@ -902,3 +902,72 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
 `187 passed / 1 deselected`。该 capacity 用例单独复跑仍因其自身 capacity level
 判定为 false 失败，与本次改动文件无交集。下一步在新 revision 上建立 clean source、
 重新物化同协议矩阵并启动 a5；held-out seeds 在前置阶段继续保持隔离。
+
+### a5 停止与 a6 冻结 artifact 复用
+
+- a5 在新 revision 上启动后产生 12 条完整 Pure VLA rollout。因 a4 已有 50/50
+  valid baseline，且离线 Harness 修复不改变环境、policy、seed、horizon 或 rollout
+  command，继续重跑会重复消耗 GPU；故主动停止 a5，并在 LoopX board 以
+  `operator_superseded_by_validated_baseline_reuse` 归档为 `runner_invalid`。
+- a6 run id 为
+  `paper-v1-goal-t-t02-dev50-80c3385-0cb765f-a6`。复用前重新校验 a4 rollout、queue、
+  gate runner、campaign、lifecycle 文件及 episode/cluster ledger 摘要；准入 receipt
+  保存为 `.loopx/a4-offline-harness-resume-receipt.json`。允许复用范围仅为离线
+  baseline、Cluster 与失败 Diagnose 上下文，禁止跨 revision 性能归因。
+- a6 因而登记为 `diagnostic_only`、`score_countable=false`。后续同类离线 Harness
+  修复默认复用已冻结 rollout、视频、cluster、provider thread 与 latency summary；
+  只有无法证明 manifest、seed、协议和执行路径等价时才重跑。
+
+### a6 Diagnose、Proposal 与 Same-seed 进行中
+
+- Diagnose 在同一 provider thread 上执行一次有上限的定向纠错，补齐缺失的第 3 个
+  target-failure overview 后通过原视觉/遥测合同；没有放宽 validator。
+- 首个 Proposal 的 shadow replay 在 15 个 success controls 上为 `0/15` 假阳性，按
+  默认严格零 FP 门槛获准进入 live Same-seed。27 个 parent arm 全部从 a4 冻结
+  baseline 采用，只运行 candidate arm。
+- 首轮 candidate 未通过 Same-seed 推进条件，状态机以
+  `optimization_outcome=refine_active_cluster` 生成第二候选；没有跳过 Regression 或
+  直接触碰 held-out seeds 1–20。
+- live Recovery 首次暴露 venv 依赖漂移：`pydantic-ai-slim 2.36.0` 要求
+  `pydantic>=2.12`，实际为 2.10.6，触发缺失 `_function_like` 的 `infra_invalid`。
+  将同一 venv 升级为 Pydantic 2.13.5 后，Pydantic-AI/Role1 导入烟测通过；策略结果
+  未受该无效 attempt 污染。
+- 自定义 Responses gateway 随后拒绝跨工具 turn 回放的 provider-owned encrypted
+  reasoning item。修复仅在中央 broker 模式设置
+  `openai_send_reasoning_ids=false` 和 `openai_reasoning_context=current_turn`，保留
+  portable function-call/output history；61 项 API loop、provider pool、broker 和
+  Role1 定向测试通过。由于 a6 已是跨 revision 诊断 lane，同一修复也同步到本地
+  source 副本以继续复用现有 candidate；该副本不再满足 clean source fence，a6
+  仍明确不可计分。
+- 修复后第二候选已完成一条真实 Goal-T task2
+  `Critic → Role1 decision → Recovery execution`。对应 compact latency summary：
+  Critic 71 次，Role1 LLM request 1 次、17.506 s，Recovery execution 1 次、
+  4.347 s，episode end-to-end 55.322 s。Same-seed 尚未 terminal，不能提前声明
+  Recovery 带来成功率提升。
+
+### a6 终止：Same-seed 候选轮次预算耗尽
+
+- a6 最终状态为 `phase=complete`、`candidate_round=2`、
+  `optimization_outcome=same_seed_gate_iteration_budget_exhausted`；冻结的
+  `same_seed_max_rounds=2` 已用完，终态为 Reject。
+- 第一候选完成 18 条有效 candidate episode，成功 `4/18`；即使余下 9 条全部成功，
+  上界也只有 `13/27`，低于冻结的 `14/27` 门槛，因此按确定性早停进入第二轮。
+- 第二候选完成 19 条有效 candidate episode，成功 `5/19`；即使余下 8 条全部成功，
+  上界同样只有 `13/27`，再次触发确定性早停。两轮 Proposal 在 15 个冻结
+  success controls 上均保持 `0` 假阳性，没有降低 zero-FP 标准。
+- 第二候选累计产生 4 次真实 Role1 decision 和 4 次 Recovery execution，分布于
+  3 个 episode；其中一个 episode 连续执行 2 次 Recovery，证明一次恢复失败后仍可
+  再次尝试。19 个 accepted candidate episode 共保存 57 个非空 MP4。
+- 聚合延迟为：Role1 LLM request 平均 `14167.403 ms`、Recovery execution 平均
+  `4315.946 ms`、episode end-to-end 平均 `36928.312 ms`。
+- 因 Same-seed 未通过，Regression 与 held-out seeds 1–20 均未启动；held-out 分区
+  继续保持未使用。早停后 queue 中未消费项作为 terminal artifact 保留，不删除也不
+  伪装成已执行结果。
+- LoopX board 的同一 a6 run id 已从 `running` 更新为 `completed`，classification
+  为 `same_seed_iteration_budget_exhausted_terminal_reject`。该跨 revision resume
+  仍为 `diagnostic_only`、`score_countable=false`，matched comparison 不可用于论文
+  成功率归因。
+- 下一独立 run 必须基于新提交后的 clean source revision 重新 source-fence，保持
+  `14/27` Same-seed 门槛和 zero-FP success-control 门禁，将候选轮次预算提高到 8；
+  复用 a4 的冻结 baseline、cluster、diagnosis、视频与 latency，并携带 a6 两个已拒绝
+  mechanism 的摘要/digest，避免重复生成。
