@@ -18,7 +18,11 @@ import secrets
 from pathlib import Path
 from typing import Any
 
-from zetta.evolution.gating import _candidate_intervened, evaluate_paired_gate
+from zetta.evolution.gating import (
+    _action_artifact_sha,
+    _candidate_intervened,
+    evaluate_paired_gate,
+)
 from zetta.evolution.jsonio import (
     AppendOnlyLedger,
     atomic_write_json,
@@ -2224,6 +2228,52 @@ def _latest_shadow_rejection_for_active_diagnosis(
     return ordered[-1]
 
 
+def _paired_causal_attribution_summary(
+    *,
+    candidate_records: list[EpisodeRecord],
+    parent_records: list[EpisodeRecord],
+) -> dict[str, int]:
+    """Reduce paired gate arms to seed-blind causal-attribution counts.
+
+    A candidate win is attributed to the proposed recovery only when its action
+    trajectory differs from the paired parent and the candidate arm attests
+    that the Critic/Role1 intervention actually ran. Missing action digests are
+    conservatively counted as unattributed rather than inferred as divergence.
+    """
+
+    parent_by_seed = {record.seed: record for record in parent_records}
+    if len(parent_by_seed) != len(parent_records):
+        raise ValueError("paired causal attribution has duplicate parent seeds")
+    action_diverged = 0
+    causally_attributed_successes = 0
+    unattributed_candidate_wins = 0
+    for candidate in candidate_records:
+        parent = parent_by_seed.get(candidate.seed)
+        if parent is None:
+            raise ValueError("paired causal attribution is missing a parent arm")
+        candidate_actions = _action_artifact_sha(candidate)
+        parent_actions = _action_artifact_sha(parent)
+        diverged = bool(
+            candidate_actions
+            and parent_actions
+            and candidate_actions != parent_actions
+        )
+        if diverged:
+            action_diverged += 1
+        candidate_win = bool(candidate.success) and not bool(parent.success)
+        if not candidate_win:
+            continue
+        if diverged and _candidate_intervened(candidate):
+            causally_attributed_successes += 1
+        else:
+            unattributed_candidate_wins += 1
+    return {
+        "action_diverged_candidate_count": action_diverged,
+        "causally_attributed_success_count": causally_attributed_successes,
+        "unattributed_candidate_win_count": unattributed_candidate_wins,
+    }
+
+
 def _rejected_gate_refinement_context(
     store: CampaignStore,
     *,
@@ -2388,6 +2438,11 @@ def _rejected_gate_refinement_context(
         for sha256, row, role in completed_rows
         if sha256 == candidate_sha256 and role == "candidate_gate_episode"
     ]
+    current_parent_rows = [
+        EpisodeRecord.from_dict(row)
+        for sha256, row, role in completed_rows
+        if sha256 == candidate_sha256 and role == "parent_gate_episode"
+    ]
     candidate_interventions = sum(
         _candidate_intervened(record) for record in current_candidate_rows
     )
@@ -2395,10 +2450,15 @@ def _rejected_gate_refinement_context(
         bool(record.success) and _candidate_intervened(record)
         for record in current_candidate_rows
     )
+    attribution = _paired_causal_attribution_summary(
+        candidate_records=current_candidate_rows,
+        parent_records=current_parent_rows,
+    )
     context["paired_gate_result"].update(
         {
             "candidate_interventions": candidate_interventions,
             "successful_candidate_interventions": successful_interventions,
+            **attribution,
         }
     )
     rejected_history = []
@@ -2414,6 +2474,11 @@ def _rejected_gate_refinement_context(
             for sha256, row, role in completed_rows
             if sha256 == prior_sha256 and role == "candidate_gate_episode"
         ]
+        prior_parent_rows = [
+            EpisodeRecord.from_dict(row)
+            for sha256, row, role in completed_rows
+            if sha256 == prior_sha256 and role == "parent_gate_episode"
+        ]
         prior_bundle = read_json(
             store.root / "candidates" / prior_sha256 / "bundle.json"
         )
@@ -2422,10 +2487,15 @@ def _rejected_gate_refinement_context(
             bool(record.success) and _candidate_intervened(record)
             for record in prior_rows
         )
+        prior_attribution = _paired_causal_attribution_summary(
+            candidate_records=prior_rows,
+            parent_records=prior_parent_rows,
+        )
         rejected_history.append(
             {
                 "candidate_interventions": prior_interventions,
                 "successful_candidate_interventions": prior_successful_interventions,
+                **prior_attribution,
             }
         )
         history_details.append(
@@ -2435,6 +2505,7 @@ def _rejected_gate_refinement_context(
                 "recovery_rules": prior_bundle.get("recovery_rules", ()),
                 "candidate_interventions": prior_interventions,
                 "successful_candidate_interventions": prior_successful_interventions,
+                **prior_attribution,
             }
         )
     context["rejected_gate_history"] = {
@@ -2449,6 +2520,19 @@ def _rejected_gate_refinement_context(
         "total_successful_candidate_interventions": sum(
             row["successful_candidate_interventions"] for row in rejected_history
         ),
+        "total_action_diverged_candidates": sum(
+            row["action_diverged_candidate_count"] for row in rejected_history
+        ),
+        "total_causally_attributed_successes": sum(
+            row["causally_attributed_success_count"] for row in rejected_history
+        ),
+        "total_unattributed_candidate_wins": sum(
+            row["unattributed_candidate_win_count"] for row in rejected_history
+        ),
+        "gates_with_unattributed_candidate_wins": sum(
+            row["unattributed_candidate_win_count"] > 0
+            for row in rejected_history
+        ),
     }
     current_history = {
         "candidate_id": bundle.get("candidate_id"),
@@ -2456,6 +2540,7 @@ def _rejected_gate_refinement_context(
         "recovery_rules": bundle.get("recovery_rules", ()),
         "candidate_interventions": candidate_interventions,
         "successful_candidate_interventions": successful_interventions,
+        **attribution,
     }
     isolation = _select_causal_isolation_directive(
         current=current_history,
@@ -2594,10 +2679,18 @@ def _select_causal_isolation_directive(
 ) -> dict[str, Any] | None:
     """Bind refinement to a proven trigger and an underexposed recovery."""
 
+    def attributed_successes(row: dict[str, Any]) -> int:
+        # Historical refinement checkpoints predate the paired action digest
+        # counters. Preserve replay compatibility while preferring the stronger
+        # causal binding for newly verified gates.
+        if "causally_attributed_success_count" in row:
+            return int(row.get("causally_attributed_success_count", 0))
+        return int(row.get("successful_candidate_interventions", 0))
+
     successful_prior = [
         row
         for row in history
-        if int(row.get("successful_candidate_interventions", 0)) > 0
+        if attributed_successes(row) > 0
         and row.get("critic_rules")
     ]
     if not successful_prior:
@@ -2605,20 +2698,19 @@ def _select_causal_isolation_directive(
     best_trigger = max(
         successful_prior,
         key=lambda row: (
+            attributed_successes(row),
             int(row.get("successful_candidate_interventions", 0)),
             int(row.get("candidate_interventions", 0)),
         ),
     )
-    if int(current.get("successful_candidate_interventions", 0)) >= int(
-        best_trigger.get("successful_candidate_interventions", 0)
-    ):
+    if attributed_successes(current) >= attributed_successes(best_trigger):
         return None
     underexposed = [
         row
         for row in history
         if row is not best_trigger
         and int(row.get("candidate_interventions", 0)) > 0
-        and int(row.get("successful_candidate_interventions", 0)) == 0
+        and attributed_successes(row) == 0
         and row.get("recovery_rules")
     ]
     if not underexposed:
@@ -2661,6 +2753,7 @@ def _select_causal_isolation_directive(
         "trigger_successful_interventions": int(
             best_trigger.get("successful_candidate_interventions", 0)
         ),
+        "trigger_causally_attributed_successes": attributed_successes(best_trigger),
         "recovery_prior_interventions": int(
             recovery_source.get("candidate_interventions", 0)
         ),
@@ -2696,10 +2789,15 @@ def _select_development_calibration_directive(
         replicated,
         key=lambda rows: (len(rows), canonical_sha256(rows[0]["tool_parameters"])),
     )
+    def attributed_successes(row: dict[str, Any]) -> int:
+        if "causally_attributed_success_count" in row:
+            return int(row.get("causally_attributed_success_count", 0))
+        return int(row.get("successful_candidate_interventions", 0))
+
     proven_triggers = [
         row
         for row in history
-        if int(row.get("successful_candidate_interventions", 0)) > 0
+        if attributed_successes(row) > 0
         and row.get("critic_rules")
     ]
     if not proven_triggers:
@@ -2707,6 +2805,7 @@ def _select_development_calibration_directive(
     best_trigger = max(
         proven_triggers,
         key=lambda row: (
+            attributed_successes(row),
             int(row.get("successful_candidate_interventions", 0)),
             int(row.get("candidate_interventions", 0)),
         ),
@@ -2728,6 +2827,7 @@ def _select_development_calibration_directive(
         "trigger_successful_interventions": int(
             best_trigger.get("successful_candidate_interventions", 0)
         ),
+        "trigger_causally_attributed_successes": attributed_successes(best_trigger),
     }
 
 

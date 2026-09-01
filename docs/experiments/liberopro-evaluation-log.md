@@ -1147,19 +1147,20 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
   候选通过 shadow admission 并真实运行 Same-seed；没有放宽 false-positive、成功率、
   safety 或轨迹分歧门槛。
 
-| Same-seed 候选 | 有效 candidate arm | 成功 | 轨迹分歧 | 结论 |
+| Same-seed 候选 | 有效 candidate arm | 成功 | reset 相机 digest 差异（审计项） | 结论 |
 | --- | ---: | ---: | ---: | --- |
 | `b728a230…` | 23/35 | 5/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
 | `d632ccda…` | 30/35 | 12/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
-| `f718904d…` | 35/35 | 18/35 | 7/35 | 达到数值门槛但因果分歧不足，Reject |
-| `9b70535c…` | 35/35 | 21/35 | 6/35 | 达到数值门槛但因果分歧不足，Reject |
-| `adaa8cbe…` | 35/35 | 19/35 | 10/35 | 达到数值门槛但因果分歧不足，Reject |
-| `a7a6cc79…` | 35/35 | 19/35 | 11/35 | 达到数值门槛但因果分歧不足，Reject |
+| `f718904d…` | 35/35 | 18/35 | 7/35 | 达到数值门槛，但 rescued-seed 因果绑定未全满足，Reject |
+| `9b70535c…` | 35/35 | 21/35 | 6/35 | 达到数值门槛，但 rescued-seed 因果绑定未全满足，Reject |
+| `adaa8cbe…` | 35/35 | 19/35 | 10/35 | 达到数值门槛，但 rescued-seed 因果绑定未全满足，Reject |
+| `a7a6cc79…` | 35/35 | 19/35 | 11/35 | 达到数值门槛，但 rescued-seed 因果绑定未全满足，Reject |
 | `e7d47246…` | 32/35 | 14/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
 
-- Same-seed 固定门槛为 `18/35`。其中 4 个候选的成功数达到门槛，但 reset state
-  全部匹配时，精确相机 digest 仅分别有 `7/35`、`6/35`、`10/35`、`11/35`
-  发生变化，未证明 Recovery 对成功轨迹产生足够的因果作用，因此均 fail closed。
+- Same-seed 固定门槛为 `18/35`。其中 4 个候选的成功数达到门槛且 safety 未退化，
+  但至少一个 rescued seed 没有同时满足 action trajectory digest 改变与
+  candidate-intervention attestation，因此均 fail closed。表中的相机 digest 差异只用于
+  审计相同物理 reset 下的 EGL 渲染漂移，不是 action 轨迹分歧计数，也不作为拒绝依据。
 - 7 轮 Same-seed 共接受 `225` 条有效 candidate episode，另有 `3` 条
   infra-invalid attempt；所有候选 safety event 均为 0。最终 state 为
   `phase=complete`、`candidate_round=15`、`same_seed_gate_rounds=7`、
@@ -1192,8 +1193,11 @@ episode record、轨迹、视频内容、worker/provider 日志或密钥。
   产生 Role1 请求、124 个 attempt 执行 Recovery，证明 Critic-Recovery 实际进入
   执行路径，而不是只生成离线 Proposal。冻结 baseline 的 50 份 summary 共
   `20610` 个事件。
-- baseline 目录保存 `200/200` 个非空 MP4，Same-seed candidate 目录保存
-  `912/912` 个非空 MP4，合计 `1112` 个；这里只核验文件数量与非空性，不读取视频内容。
+- baseline 的 50 个 `videos/` 目录保存 `150/150` 个非空 MP4，Same-seed 的
+  228 个 `videos/` 目录保存 `684/684` 个非空 MP4，合计 `834` 个；每个 attempt
+  分别保留 agentview、wrist 和 multiview 三种视角。此前的 `200/912/1112` 计数把
+  每个目录的非视频索引文件计入了视频数，现已纠正；这里只核验文件数量与非空性，
+  不读取视频内容。
 - LoopX board 已将同一 a14 run id 从 `running` 更新为 `completed`，classification
   为 `candidate_round_budget_exhausted_same_seed_causal_isolation_terminal_reject`，
   `official_result_present=true`、`score_countable=false`，随后释放并发槽至 `0/1`。
@@ -1202,3 +1206,26 @@ episode record、轨迹、视频内容、worker/provider 日志或密钥。
 - 在冻结 source worktree 上复跑 refinement、lifecycle、candidate gate、artifact
   audit、LIBERO evolution runtime 与 held-out 隔离定向测试，结果为 `110 passed`；
   controller shell syntax、terminal row JSON 与 `git diff --check` 同时通过。
+
+### a15 前置修复：将 Same-seed 因果拒绝反馈给下一轮 Proposal
+
+- a14 证明 Same-seed 门禁本身按冻结协议 fail closed，但暴露出 Harness feedback
+  mismatch：下一轮 Stage2 只收到 candidate intervention 总数和 intervention 后成功数，
+  无法区分自然成功、仅触发未改变 action 的成功，以及真正改变 action 且救回 parent
+  failure 的成功。模型因而持续优化名义成功率，仍可能在同一 rescued pair 上缺失因果绑定。
+- 修复保持 GateDecision schema、18/35 成功门槛、零 FP、safety 和 held-out 隔离均不变，
+  仅从已验证 paired gate arm 聚合三个 seed-blind 计数：
+  `action_diverged_candidate_count`、`causally_attributed_success_count`、
+  `unattributed_candidate_win_count`。历史汇总同时记录对应总数与存在未归因 win 的 gate 数。
+- causal-isolation 选择现在优先按 `causally_attributed_success_count` 选择 proven Critic；
+  旧 checkpoint 没有新字段时仍回退到原 `successful_candidate_interventions`，不破坏历史重放。
+  Stage2 明确要求：未归因 win 非 Recovery rescue，必须修复 trigger-to-action handoff 或改用
+  实质不同的 Recovery，不能继续只优化 raw success/intervention 数。
+- 新增合成 paired-arm 回归覆盖三类情况：真实归因 rescue、action 未改变的自然 win、
+  未 attestation 的 action 分歧 win；并验证 causal-isolation 不会选择名义成功高但因果归因
+  为零的 Critic。refinement、gate 与 candidate runner 定向集合为 `60 passed`，
+  `git diff --check` 通过；当前 LIBERO venv 未安装 Ruff，因此未虚报 Ruff 验证。
+- a14 候选目录经 LoopX artifact classifier 判定为 `not_compact_public_artifact`，故此次没有
+  直接读取或输出候选 trajectory、视频内容、provider transcript 或 worker log。a15 必须在
+  含本修复的新 clean revision 上 source-fence，并继续复用冻结 baseline、Cluster、Diagnose、
+  视频和 latency；仅执行新的 Proposal 及必要的 Same-seed/Regression/held-out 链。

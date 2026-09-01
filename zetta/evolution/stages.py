@@ -165,7 +165,14 @@ the Critic leaves too little action horizon to execute it. Treat
 ``paired_gate_result.candidate_interventions`` and
 ``paired_gate_result.successful_candidate_interventions`` as attribution
 statistics, not optional prose: a natural candidate success with no intervention
-is not a rescue. When refinement history contains at least two rejected
+is not a rescue. The stronger causal counters are binding: an
+``action_diverged_candidate_count`` only proves that candidate actions changed;
+a ``causally_attributed_success_count`` requires a parent failure, candidate
+success, changed action trajectory, and candidate-intervention attestation;
+each ``unattributed_candidate_win_count`` is a nominal win that failed this
+binding. When unattributed wins are nonzero, refine the trigger-to-action handoff
+or choose a materially different recovery instead of optimizing raw success or
+intervention counts. When refinement history contains at least two rejected
 same-seed gates with zero successful candidate interventions, do not make another
 detector-only or prompt-only variant of the same recovery path. Switch to the
 other competing hypothesis (for example, a termination/success-transition

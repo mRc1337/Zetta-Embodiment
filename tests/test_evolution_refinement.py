@@ -22,6 +22,7 @@ from zetta.evolution.lifecycle import (
     _bounded_refinement_artifact_index,
     _candidate_feature_contract,
     _frozen_same_seed_pass_rate,
+    _paired_causal_attribution_summary,
     _record_candidate_feature_contract_rejection,
     _recover_unadvanced_candidate,
     _rejected_candidates_for_cluster,
@@ -247,6 +248,48 @@ def test_causal_isolation_prefers_proven_trigger_and_underexposed_recovery() -> 
         )
         is None
     )
+
+
+def test_causal_isolation_ranks_attributed_wins_over_nominal_successes() -> None:
+    causal_critic = {"rule_id": "critic-causal", "evidence_ids": []}
+    recovery_steps = [{"tool": "pi0_pick", "parameters": {}, "stop_when": "done"}]
+    directive = _select_causal_isolation_directive(
+        current={
+            "candidate_interventions": 12,
+            "successful_candidate_interventions": 8,
+            "causally_attributed_success_count": 0,
+        },
+        history=[
+            {
+                "critic_rules": [
+                    {"rule_id": "critic-nominal-success", "evidence_ids": []}
+                ],
+                "recovery_rules": [{"steps": [{"tool": "set_gripper"}]}],
+                "candidate_interventions": 30,
+                "successful_candidate_interventions": 20,
+                "causally_attributed_success_count": 0,
+            },
+            {
+                "critic_rules": [causal_critic],
+                "recovery_rules": [{"steps": [{"tool": "set_gripper"}]}],
+                "candidate_interventions": 8,
+                "successful_candidate_interventions": 4,
+                "causally_attributed_success_count": 4,
+            },
+            {
+                "critic_rules": [{"rule_id": "critic-underexposed"}],
+                "recovery_rules": [{"steps": recovery_steps}],
+                "candidate_interventions": 2,
+                "successful_candidate_interventions": 0,
+                "causally_attributed_success_count": 0,
+            },
+        ],
+    )
+
+    assert directive is not None
+    assert directive["preserve_critic_rules_byte_for_byte"] == [causal_critic]
+    assert directive["reuse_recovery_steps_byte_for_byte"] == recovery_steps
+    assert directive["trigger_causally_attributed_successes"] == 4
 
 
 def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:
@@ -568,6 +611,81 @@ def _gate_record(
             },
         },
     )
+
+
+def test_paired_causal_attribution_distinguishes_rescues_from_natural_wins(
+    tmp_path: Path,
+) -> None:
+    states = tmp_path / "states.jsonl"
+    states.write_text("{}\n", encoding="utf-8")
+
+    def arm(
+        *,
+        seed: int,
+        role: str,
+        success: bool,
+        action_hash: str,
+        intervened: bool = False,
+    ) -> EpisodeRecord:
+        record = _gate_record(
+            logical_id=f"pair-{seed}-{role}",
+            bundle_sha256="c" * 64 if role == "candidate" else None,
+            states=states,
+            action_hash=action_hash,
+        )
+        artifact_index = dict(record.artifact_index)
+        artifact_index["candidate_intervention"] = intervened
+        return replace(
+            record,
+            seed=seed,
+            policy_rng=1000 + seed,
+            success=success,
+            artifact_index=artifact_index,
+        )
+
+    parents = [
+        arm(seed=seed, role="parent", success=(seed == 3), action_hash="a" * 64)
+        for seed in range(4)
+    ]
+    candidates = [
+        arm(
+            seed=0,
+            role="candidate",
+            success=True,
+            action_hash="b" * 64,
+            intervened=True,
+        ),
+        arm(
+            seed=1,
+            role="candidate",
+            success=True,
+            action_hash="a" * 64,
+            intervened=True,
+        ),
+        arm(
+            seed=2,
+            role="candidate",
+            success=True,
+            action_hash="b" * 64,
+            intervened=False,
+        ),
+        arm(
+            seed=3,
+            role="candidate",
+            success=True,
+            action_hash="b" * 64,
+            intervened=True,
+        ),
+    ]
+
+    assert _paired_causal_attribution_summary(
+        candidate_records=candidates,
+        parent_records=parents,
+    ) == {
+        "action_diverged_candidate_count": 3,
+        "causally_attributed_success_count": 1,
+        "unattributed_candidate_win_count": 2,
+    }
 
 
 def test_candidate_feature_contract_rejects_split_reset_action_features(
@@ -1219,6 +1337,8 @@ def test_rejected_gate_evidence_is_opaque_and_refinement_reconstructs_fresh_thre
             states=states,
             action_hash=("a" * 64 if arm == "parent" else "b" * 64),
         )
+        if arm == "candidate":
+            record = replace(record, success=True)
         valid.append(record.as_dict())
         attempts.append({"attempt_id": record.attempt_id, **record.as_dict()})
         atomic_write_json(
@@ -1324,6 +1444,32 @@ def test_rejected_gate_evidence_is_opaque_and_refinement_reconstructs_fresh_thre
     )
     assert refinement is not None
     assert refinement["paired_gate_result"]["passed"] is False
+    assert {
+        key: refinement["paired_gate_result"][key]
+        for key in (
+            "action_diverged_candidate_count",
+            "causally_attributed_success_count",
+            "unattributed_candidate_win_count",
+        )
+    } == {
+        "action_diverged_candidate_count": 1,
+        "causally_attributed_success_count": 0,
+        "unattributed_candidate_win_count": 1,
+    }
+    assert {
+        key: refinement["rejected_gate_history"][key]
+        for key in (
+            "total_action_diverged_candidates",
+            "total_causally_attributed_successes",
+            "total_unattributed_candidate_wins",
+            "gates_with_unattributed_candidate_wins",
+        )
+    } == {
+        "total_action_diverged_candidates": 1,
+        "total_causally_attributed_successes": 0,
+        "total_unattributed_candidate_wins": 1,
+        "gates_with_unattributed_candidate_wins": 1,
+    }
     assert refinement["gate_evidence"]
     assert refinement["previous_detector_replay"] == {
         "target_count": 2,
