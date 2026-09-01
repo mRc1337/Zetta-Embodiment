@@ -292,6 +292,84 @@ def test_causal_isolation_ranks_attributed_wins_over_nominal_successes() -> None
     assert directive["trigger_causally_attributed_successes"] == 4
 
 
+def test_shadow_rejection_keeps_prior_live_causal_history(monkeypatch) -> None:
+    diagnosis = _diagnosis()
+    candidate = _candidate(candidate_id="candidate-shadow", diagnosis=diagnosis)
+    shadow_rejection = {
+        "candidate_sha256": candidate.sha256,
+        "cluster_id": diagnosis.cluster_id,
+        "rejection_id": "shadow-rejection-test",
+        "rejection_kind": "shadow_preflight",
+        "preflight_disposition": "rejected_success_control_false_positive_rate",
+    }
+    history_summary = {
+        "rejected_same_seed_candidate_count": 2,
+        "gates_with_zero_successful_candidate_interventions": 1,
+        "total_candidate_interventions": 10,
+        "total_successful_candidate_interventions": 4,
+        "total_action_diverged_candidates": 6,
+        "total_causally_attributed_successes": 3,
+        "total_unattributed_candidate_wins": 2,
+        "gates_with_unattributed_candidate_wins": 1,
+    }
+    proven_critic = {"rule_id": "critic-proven", "evidence_ids": []}
+    recovery_steps = [{"tool": "pi0_pick", "parameters": {}, "stop_when": "done"}]
+    history_details = [
+        {
+            "critic_rules": [proven_critic],
+            "recovery_rules": [{"steps": [{"tool": "set_gripper"}]}],
+            "candidate_interventions": 8,
+            "successful_candidate_interventions": 4,
+            "causally_attributed_success_count": 3,
+        },
+        {
+            "critic_rules": [{"rule_id": "critic-underexposed"}],
+            "recovery_rules": [{"steps": recovery_steps}],
+            "candidate_interventions": 2,
+            "successful_candidate_interventions": 0,
+            "causally_attributed_success_count": 0,
+        },
+    ]
+
+    class Store:
+        def state(self) -> dict[str, Any]:
+            return {"candidate_sha256": None}
+
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._operator_candidate_rejections", lambda _: []
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._latest_shadow_rejection_for_active_diagnosis",
+        lambda _: shadow_rejection,
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._candidate_from_shadow_rejection",
+        lambda *_: (candidate, {"target_count": 1}),
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._shadow_candidate_rejections",
+        lambda _: [shadow_rejection],
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._rejected_same_seed_causal_history",
+        lambda _: (history_summary, history_details, {}),
+    )
+
+    context = _rejected_gate_refinement_context(  # type: ignore[arg-type]
+        Store(), artifact_index={"artifacts": []}
+    )
+
+    assert context is not None
+    assert context["mode"] == "refine_shadow_rejected_candidate"
+    assert context["rejected_gate_history"] == history_summary
+    assert context["causal_isolation_directive"][
+        "preserve_critic_rules_byte_for_byte"
+    ] == [proven_critic]
+    assert context["causal_isolation_directive"][
+        "reuse_recovery_steps_byte_for_byte"
+    ] == recovery_steps
+
+
 def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:
     critic_rules = [{"rule_id": "critic-proven", "evidence_ids": []}]
     recovery_steps = [

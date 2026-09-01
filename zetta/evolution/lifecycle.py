@@ -2274,6 +2274,86 @@ def _paired_causal_attribution_summary(
     }
 
 
+def _rejected_same_seed_causal_history(
+    store: CampaignStore,
+) -> tuple[dict[str, int], list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Build one prompt-safe causal history shared by both rejection paths."""
+
+    completed_rows = _completed_gate_episode_rows(store)
+    rejected_history: list[dict[str, int]] = []
+    history_details: list[dict[str, Any]] = []
+    history_by_candidate: dict[str, dict[str, Any]] = {}
+    for prior in store.gates.records():
+        if prior.get("passed") is not False or prior.get("kind") != "same_seed":
+            continue
+        prior_sha256 = prior.get("candidate_sha256")
+        if not isinstance(prior_sha256, str):
+            continue
+        prior_rows = [
+            EpisodeRecord.from_dict(row)
+            for sha256, row, role in completed_rows
+            if sha256 == prior_sha256 and role == "candidate_gate_episode"
+        ]
+        prior_parent_rows = [
+            EpisodeRecord.from_dict(row)
+            for sha256, row, role in completed_rows
+            if sha256 == prior_sha256 and role == "parent_gate_episode"
+        ]
+        prior_bundle = read_json(
+            store.root / "candidates" / prior_sha256 / "bundle.json"
+        )
+        prior_interventions = sum(_candidate_intervened(record) for record in prior_rows)
+        prior_successful_interventions = sum(
+            bool(record.success) and _candidate_intervened(record)
+            for record in prior_rows
+        )
+        prior_attribution = _paired_causal_attribution_summary(
+            candidate_records=prior_rows,
+            parent_records=prior_parent_rows,
+        )
+        summary_row = {
+            "candidate_interventions": prior_interventions,
+            "successful_candidate_interventions": prior_successful_interventions,
+            **prior_attribution,
+        }
+        detail_row = {
+            "candidate_id": prior_bundle.get("candidate_id"),
+            "critic_rules": prior_bundle.get("critic_rules", ()),
+            "recovery_rules": prior_bundle.get("recovery_rules", ()),
+            **summary_row,
+        }
+        rejected_history.append(summary_row)
+        history_details.append(detail_row)
+        history_by_candidate[prior_sha256] = detail_row
+    summary = {
+        "rejected_same_seed_candidate_count": len(rejected_history),
+        "gates_with_zero_successful_candidate_interventions": sum(
+            row["successful_candidate_interventions"] == 0
+            for row in rejected_history
+        ),
+        "total_candidate_interventions": sum(
+            row["candidate_interventions"] for row in rejected_history
+        ),
+        "total_successful_candidate_interventions": sum(
+            row["successful_candidate_interventions"] for row in rejected_history
+        ),
+        "total_action_diverged_candidates": sum(
+            row["action_diverged_candidate_count"] for row in rejected_history
+        ),
+        "total_causally_attributed_successes": sum(
+            row["causally_attributed_success_count"] for row in rejected_history
+        ),
+        "total_unattributed_candidate_wins": sum(
+            row["unattributed_candidate_win_count"] for row in rejected_history
+        ),
+        "gates_with_unattributed_candidate_wins": sum(
+            row["unattributed_candidate_win_count"] > 0
+            for row in rejected_history
+        ),
+    }
+    return summary, history_details, history_by_candidate
+
+
 def _rejected_gate_refinement_context(
     store: CampaignStore,
     *,
@@ -2326,7 +2406,7 @@ def _rejected_gate_refinement_context(
             rejected_mechanisms.append(
                 _mechanism_semantics_sha256(prior_candidate.as_dict())
             )
-        return {
+        context = {
             "mode": "refine_shadow_rejected_candidate",
             "previous_candidate": previous_candidate,
             "preflight_rejection": {
@@ -2346,6 +2426,22 @@ def _rejected_gate_refinement_context(
                 "listed in rejected_mechanism_sha256s."
             ),
         }
+        history_summary, history_details, _ = _rejected_same_seed_causal_history(
+            store
+        )
+        context["rejected_gate_history"] = history_summary
+        isolation = _select_causal_isolation_directive(
+            current={
+                **previous_candidate,
+                "candidate_interventions": 0,
+                "successful_candidate_interventions": 0,
+                "causally_attributed_success_count": 0,
+            },
+            history=history_details,
+        )
+        if isolation is not None:
+            context["causal_isolation_directive"] = isolation
+        return context
     decisions = [
         row
         for row in store.gates.records()
@@ -2432,116 +2528,25 @@ def _rejected_gate_refinement_context(
     }
     # Keep causal attribution explicit and seed-blind. A natural candidate
     # success without an intervention is not evidence for the recovery.
-    completed_rows = _completed_gate_episode_rows(store)
-    current_candidate_rows = [
-        EpisodeRecord.from_dict(row)
-        for sha256, row, role in completed_rows
-        if sha256 == candidate_sha256 and role == "candidate_gate_episode"
-    ]
-    current_parent_rows = [
-        EpisodeRecord.from_dict(row)
-        for sha256, row, role in completed_rows
-        if sha256 == candidate_sha256 and role == "parent_gate_episode"
-    ]
-    candidate_interventions = sum(
-        _candidate_intervened(record) for record in current_candidate_rows
+    history_summary, history_details, history_by_candidate = (
+        _rejected_same_seed_causal_history(store)
     )
-    successful_interventions = sum(
-        bool(record.success) and _candidate_intervened(record)
-        for record in current_candidate_rows
-    )
-    attribution = _paired_causal_attribution_summary(
-        candidate_records=current_candidate_rows,
-        parent_records=current_parent_rows,
-    )
+    current_history = history_by_candidate.get(candidate_sha256)
+    if current_history is None:
+        raise ValueError("rejected gate is missing from causal history")
     context["paired_gate_result"].update(
         {
-            "candidate_interventions": candidate_interventions,
-            "successful_candidate_interventions": successful_interventions,
-            **attribution,
+            key: current_history[key]
+            for key in (
+                "candidate_interventions",
+                "successful_candidate_interventions",
+                "action_diverged_candidate_count",
+                "causally_attributed_success_count",
+                "unattributed_candidate_win_count",
+            )
         }
     )
-    rejected_history = []
-    history_details: list[dict[str, Any]] = []
-    for prior in store.gates.records():
-        if prior.get("passed") is not False or prior.get("kind") != "same_seed":
-            continue
-        prior_sha256 = prior.get("candidate_sha256")
-        if not isinstance(prior_sha256, str):
-            continue
-        prior_rows = [
-            EpisodeRecord.from_dict(row)
-            for sha256, row, role in completed_rows
-            if sha256 == prior_sha256 and role == "candidate_gate_episode"
-        ]
-        prior_parent_rows = [
-            EpisodeRecord.from_dict(row)
-            for sha256, row, role in completed_rows
-            if sha256 == prior_sha256 and role == "parent_gate_episode"
-        ]
-        prior_bundle = read_json(
-            store.root / "candidates" / prior_sha256 / "bundle.json"
-        )
-        prior_interventions = sum(_candidate_intervened(record) for record in prior_rows)
-        prior_successful_interventions = sum(
-            bool(record.success) and _candidate_intervened(record)
-            for record in prior_rows
-        )
-        prior_attribution = _paired_causal_attribution_summary(
-            candidate_records=prior_rows,
-            parent_records=prior_parent_rows,
-        )
-        rejected_history.append(
-            {
-                "candidate_interventions": prior_interventions,
-                "successful_candidate_interventions": prior_successful_interventions,
-                **prior_attribution,
-            }
-        )
-        history_details.append(
-            {
-                "candidate_id": prior_bundle.get("candidate_id"),
-                "critic_rules": prior_bundle.get("critic_rules", ()),
-                "recovery_rules": prior_bundle.get("recovery_rules", ()),
-                "candidate_interventions": prior_interventions,
-                "successful_candidate_interventions": prior_successful_interventions,
-                **prior_attribution,
-            }
-        )
-    context["rejected_gate_history"] = {
-        "rejected_same_seed_candidate_count": len(rejected_history),
-        "gates_with_zero_successful_candidate_interventions": sum(
-            row["successful_candidate_interventions"] == 0
-            for row in rejected_history
-        ),
-        "total_candidate_interventions": sum(
-            row["candidate_interventions"] for row in rejected_history
-        ),
-        "total_successful_candidate_interventions": sum(
-            row["successful_candidate_interventions"] for row in rejected_history
-        ),
-        "total_action_diverged_candidates": sum(
-            row["action_diverged_candidate_count"] for row in rejected_history
-        ),
-        "total_causally_attributed_successes": sum(
-            row["causally_attributed_success_count"] for row in rejected_history
-        ),
-        "total_unattributed_candidate_wins": sum(
-            row["unattributed_candidate_win_count"] for row in rejected_history
-        ),
-        "gates_with_unattributed_candidate_wins": sum(
-            row["unattributed_candidate_win_count"] > 0
-            for row in rejected_history
-        ),
-    }
-    current_history = {
-        "candidate_id": bundle.get("candidate_id"),
-        "critic_rules": bundle.get("critic_rules", ()),
-        "recovery_rules": bundle.get("recovery_rules", ()),
-        "candidate_interventions": candidate_interventions,
-        "successful_candidate_interventions": successful_interventions,
-        **attribution,
-    }
+    context["rejected_gate_history"] = history_summary
     isolation = _select_causal_isolation_directive(
         current=current_history,
         history=history_details,

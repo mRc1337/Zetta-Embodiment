@@ -1221,9 +1221,14 @@ episode record、轨迹、视频内容、worker/provider 日志或密钥。
   旧 checkpoint 没有新字段时仍回退到原 `successful_candidate_interventions`，不破坏历史重放。
   Stage2 明确要求：未归因 win 非 Recovery rescue，必须修复 trigger-to-action handoff 或改用
   实质不同的 Recovery，不能继续只优化 raw success/intervention 数。
+- a14 的最后一轮恰好是 shadow Reject；原实现会在 shadow refinement 分支提前返回，
+  即使 live gate 已有新计数，a15 首轮也看不到。现将同一份 rejected Same-seed 因果历史
+  同时接入 live-reject 与 shadow-reject 两条路径，并允许 shadow refinement 继承由真实
+  live gate 选出的 causal-isolation binding。
 - 新增合成 paired-arm 回归覆盖三类情况：真实归因 rescue、action 未改变的自然 win、
   未 attestation 的 action 分歧 win；并验证 causal-isolation 不会选择名义成功高但因果归因
-  为零的 Critic。refinement、gate 与 candidate runner 定向集合为 `60 passed`，
+  为零的 Critic，以及 shadow Reject 后仍保留 live causal history。refinement、gate 与
+  candidate runner 定向集合为 `61 passed`，
   `git diff --check` 通过；当前 LIBERO venv 未安装 Ruff，因此未虚报 Ruff 验证。
 - a14 候选目录经 LoopX artifact classifier 判定为 `not_compact_public_artifact`，故此次没有
   直接读取或输出候选 trajectory、视频内容、provider transcript 或 worker log。a15 必须在
