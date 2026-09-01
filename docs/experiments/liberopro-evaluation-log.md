@@ -736,3 +736,29 @@ campaign 本地目录；本日志只记录公开安全的聚合状态。
   `no_candidate_passed_primary_or_secondary`，形成正式 Reject 而不是 runner crash。
 - 定向验证：39 项 lifecycle/refinement/CLI 测试通过；另 102 项 evolution、campaign、
   LIBERO runtime 与论文矩阵测试通过。
+
+### a2：修复 revision 上的同 seed 重跑
+
+- 修复 revision：`44fc338992faefbdb84720cb5428ce08a1c4728d`，已推送
+  `origin/main`，并建立 detached clean source worktree；source revision fence pass。
+- 重新物化论文 4×10 campaign matrix，沿用 master seed `260816590`。a2 与 a1 的
+  50 个 development seeds、20 个 held-out seeds 及逐 seed policy RNG 完全相同。
+- run id：`paper-v1-goal-t-t02-dev50-44fc338-a2`；使用独立
+  `state-a2/queue-a2`，仍限制为一个 `local0` worker、`--concurrency 1`。
+- 启动后首条 episode 已被接受为 valid，队列为
+  `1 completed / 48 pending / 1 running / 0 failed`。
+- Pure VLA 最终完成 `50/50 valid`、`7 success / 43 failure`，成功率
+  `14.0%`，`0 infra-invalid`；Cluster 选择主簇后进入 Stage1 Diagnose。
+- Diagnose 调用实际读取了 30 条视觉记录并返回 11 条视觉引用；seed-blind
+  compact receipt 显示其中 1 条引用的 `access_record_id` 被模型写错，但对应
+  `content_id` 已读取且只有一个可解析的视觉记录。原 revision 的严格校验因此
+  fail closed，a2 作为 `runner_invalid` 归档，不在旧源码上热修复续跑。
+
+### a3 前置修复：唯一视觉内容的审计 ID 规范化
+
+- Harness 仅在引用的 immutable `content_id` 已实际作为图片字节交付，且该内容
+  在当前与继承审计日志中恰好对应一个视觉访问记录时，规范化模型写错的
+  `access_record_id`；同一视频多帧导致歧义、内容未读取或 ID/内容冲突仍 fail closed。
+- 定向验证覆盖唯一绑定修复、视频多帧歧义拒绝、访问日志摘要校验与 Stage
+  lifecycle：`67 passed`；扩大到 evolution、campaign、LIBERO runtime 与论文
+  矩阵相关测试后为 `381 passed`（仅 3 条第三方 deprecation warning）。

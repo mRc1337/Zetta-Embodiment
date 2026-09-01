@@ -1427,6 +1427,7 @@ class CodexStageAgent:
         inherited_logs: tuple[tuple[Path, str | None], ...] = (),
     ) -> None:
         image_reads: dict[str, dict[str, Any]] = {}
+        image_reads_by_content: dict[str, dict[str, dict[str, Any]]] = {}
         logs = ((path, expected_log_sha256), *inherited_logs)
         for access_path, expected_sha256 in logs:
             if not access_path.is_file():
@@ -1452,6 +1453,8 @@ class CodexStageAgent:
                     if previous is not None and previous != row:
                         raise ValueError("conflicting visual-access record ID")
                     image_reads[access_id] = row
+                    content_id = str(row.get("content_id", ""))
+                    image_reads_by_content.setdefault(content_id, {})[access_id] = row
         references = parsed.get("visual_evidence")
         if not isinstance(references, list) or not references:
             raise ValueError("diagnosis must report visual evidence it actually viewed")
@@ -1461,9 +1464,19 @@ class CodexStageAgent:
             access_id = str(reference.get("access_record_id", ""))
             delivered = image_reads.get(access_id)
             if delivered is None:
-                raise ValueError(
-                    "diagnosis cited visual evidence that was not delivered as image bytes"
-                )
+                content_id = str(reference.get("content_id", ""))
+                candidates = image_reads_by_content.get(content_id, {})
+                if len(candidates) != 1:
+                    raise ValueError(
+                        "diagnosis cited visual evidence that was not delivered "
+                        "as uniquely identifiable image bytes"
+                    )
+                access_id, delivered = next(iter(candidates.items()))
+                # The opaque content ID is itself immutable.  If the provider
+                # copied that ID correctly but malformed the companion audit
+                # token, bind the citation to the sole delivered visual record.
+                # Multiple frames for one video remain ambiguous and fail closed.
+                reference["access_record_id"] = access_id
             if str(reference.get("content_id")) != str(delivered.get("content_id")):
                 raise ValueError("visual citation content/access binding mismatch")
 

@@ -752,6 +752,18 @@ def test_campaign_image_is_delivered_as_visual_content_and_access_is_audited(
             ]
         },
     )
+    repaired = {
+        "visual_evidence": [
+            {
+                "content_id": content_id,
+                "access_record_id": "visual-access-" + "b" * 64,
+            }
+        ]
+    }
+    CodexStageAgent._validate_visual_access(access, repaired)
+    assert repaired["visual_evidence"][0]["access_record_id"] == row[
+        "access_record_id"
+    ]
     with pytest.raises(ValueError, match="was not delivered"):
         CodexStageAgent._validate_visual_access(
             access,
@@ -776,6 +788,36 @@ def test_campaign_image_is_delivered_as_visual_content_and_access_is_audited(
                 ]
             },
             expected_log_sha256="0" * 64,
+        )
+
+
+def test_visual_access_repair_rejects_ambiguous_content_id(tmp_path: Path) -> None:
+    access = tmp_path / "access.jsonl"
+    content_id = "artifact-" + "a" * 64
+    rows = [
+        {
+            "content_id": content_id,
+            "kind": "video_frame",
+            "frame_index": frame_index,
+            "access_record_id": "visual-access-" + digit * 64,
+        }
+        for frame_index, digit in ((1, "b"), (2, "c"))
+    ]
+    access.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="uniquely identifiable"):
+        CodexStageAgent._validate_visual_access(
+            access,
+            {
+                "visual_evidence": [
+                    {
+                        "content_id": content_id,
+                        "access_record_id": "visual-access-" + "d" * 64,
+                    }
+                ]
+            },
         )
 
 
