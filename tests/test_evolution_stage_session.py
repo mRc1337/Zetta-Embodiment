@@ -15,6 +15,7 @@ from zetta.evolution.stages import (
     _candidate_from_payload,
     _diagnostic_telemetry_contract,
     _extract_json_object,
+    _mechanism_semantics_sha256,
     _normalize_task_contract,
     _reject_collision_control,
     _validate_recovery_chunk_policy,
@@ -668,6 +669,78 @@ def test_stage2_rejects_an_unchanged_failed_gate_mechanism(
     stage = root / "stage2-proposal"
     assert (stage / "attempt-000" / "output.json").is_file()
     assert not (stage / "output.json").exists()
+
+
+def test_stage2_shadow_refinement_uses_no_live_gate_evidence_and_rejects_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    previous = _candidate_payload()
+    payload = _candidate_payload()
+    payload["critic_rules"][0]["threshold"] = 0.02
+
+    class FakePlanner:
+        def solve(self, **_: Any) -> PlannerResult:
+            return PlannerResult(
+                messages=[{"content": json.dumps(payload)}],
+                stats={"thread_id": "thread-shadow-refinement"},
+            )
+
+    monkeypatch.setattr(
+        "zetta.evolution.stages.build_planner", lambda *_args, **_kwargs: FakePlanner()
+    )
+    context = {
+        "mode": "refine_shadow_rejected_candidate",
+        "previous_candidate": previous,
+        "preflight_rejection": {
+            "rejection_kind": "immutable_shadow_preflight_rejection",
+            "preflight_disposition": (
+                "rejected_success_control_false_positive_rate"
+            ),
+        },
+        "previous_detector_replay": {
+            "target_count": 7,
+            "target_detected_at_divergence": 0,
+            "target_triggered_anywhere": 6,
+            "target_unknown_divergence_count": 7,
+            "success_control_count": 8,
+            "success_control_false_positives": 8,
+            "success_control_false_positive_rate": 1.0,
+        },
+        "rejected_mechanism_sha256s": [
+            _mechanism_semantics_sha256(previous)
+        ],
+        "gate_evidence": [],
+    }
+    candidate = CodexStageAgent(output_root=tmp_path / "accepted").propose(
+        generation=0,
+        parent_sha256=None,
+        diagnosis=_diagnosis(),
+        tool_catalog={"tools": [{"name": "robocasa.vla.groot"}]},
+        artifact_index=_artifact_index(),
+        available_critic_features=("privileged.progress",),
+        refinement_context=context,
+    )
+    assert candidate.critic_rules[0].threshold == 0.02
+
+    context["previous_candidate"] = {
+        **previous,
+        "critic_rules": [
+            {**previous["critic_rules"][0], "threshold": 0.03}
+        ],
+    }
+    context["rejected_mechanism_sha256s"].append(
+        _mechanism_semantics_sha256(payload)
+    )
+    with pytest.raises(ValueError, match="repeated the rejected mechanism"):
+        CodexStageAgent(output_root=tmp_path / "rejected-history").propose(
+            generation=0,
+            parent_sha256=None,
+            diagnosis=_diagnosis(),
+            tool_catalog={"tools": [{"name": "robocasa.vla.groot"}]},
+            artifact_index=_artifact_index(),
+            available_critic_features=("privileged.progress",),
+            refinement_context=context,
+        )
 
 
 def test_stage2_refinement_must_cite_paired_gate_evidence(

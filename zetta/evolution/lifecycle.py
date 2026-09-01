@@ -36,7 +36,7 @@ from zetta.evolution.models import (
     GateDecision,
 )
 from zetta.evolution.shadow_replay import evaluate_shadow_replay
-from zetta.evolution.stages import CodexStageAgent
+from zetta.evolution.stages import CodexStageAgent, _mechanism_semantics_sha256
 from zetta.evolution.store import CampaignStore
 
 _RESOLVER_SCHEMA_VERSION = 1
@@ -1855,6 +1855,193 @@ def _development_evidence_summary(store: CampaignStore) -> list[dict[str, Any]]:
     return evidence
 
 
+def _shadow_rejection_candidate_order(rejection: dict[str, Any]) -> int:
+    """Return the immutable Stage2 candidate ordinal for one rejection."""
+
+    candidate_output = rejection.get("candidate_output")
+    if not isinstance(candidate_output, str):
+        raise ValueError("shadow candidate rejection has no candidate output binding")
+    match = re.search(r"(?:^|/)candidate-(\d+)(?:/|$)", candidate_output)
+    if match is None:
+        raise ValueError("shadow candidate rejection has no candidate ordinal")
+    return int(match.group(1))
+
+
+def _candidate_from_shadow_rejection(
+    store: CampaignStore,
+    rejection: dict[str, Any],
+) -> tuple[CandidateBundle, dict[str, Any] | None]:
+    """Rebuild one unregistered candidate from append-only rejection evidence.
+
+    The replay summary excludes trajectory identifiers, paths, seeds, and raw
+    outcomes. Every immutable binding is verified before the candidate can
+    enter a later Stage2 prompt.
+    """
+
+    relative_output = rejection.get("candidate_output")
+    expected_output_sha256 = rejection.get("candidate_output_sha256")
+    if not isinstance(relative_output, str) or not isinstance(
+        expected_output_sha256, str
+    ):
+        raise ValueError("shadow candidate rejection output binding is incomplete")
+    relative_path = Path(relative_output)
+    if relative_path.is_absolute():
+        raise ValueError("shadow candidate rejection output must be relative")
+    output_path = (store.root / relative_path).resolve()
+    agents_root = (store.root / "agents").resolve()
+    if (
+        not output_path.is_relative_to(agents_root)
+        or not output_path.is_file()
+        or output_path.name != "output.json"
+        or not output_path.parent.name.startswith("attempt-")
+        or file_sha256(output_path) != expected_output_sha256
+    ):
+        raise ValueError("shadow candidate rejection output changed")
+
+    diagnosis_sha256 = rejection.get("diagnosis_sha256")
+    diagnoses = []
+    for row in store.diagnoses.records():
+        diagnosis = _diagnosis(row)
+        if diagnosis.sha256 == diagnosis_sha256:
+            diagnoses.append(diagnosis)
+    if len(diagnoses) != 1:
+        raise ValueError("shadow candidate rejection diagnosis binding is ambiguous")
+    diagnosis = diagnoses[0]
+    if rejection.get("cluster_id") != diagnosis.cluster_id:
+        raise ValueError("shadow candidate rejection cluster binding changed")
+
+    rejection_kind = rejection.get("rejection_kind")
+    replay_summary: dict[str, Any] | None = None
+    if rejection_kind == "immutable_shadow_preflight_rejection":
+        candidate_sha256 = rejection.get("candidate_sha256")
+        shadow_path = (
+            store.root
+            / "analysis"
+            / "candidate-shadow-replay"
+            / f"{candidate_sha256}.json"
+        )
+        precommit_path = shadow_path.with_suffix(".precommit.json")
+        if not shadow_path.is_file() or not precommit_path.is_file():
+            raise ValueError("shadow candidate rejection replay binding is incomplete")
+        shadow = read_json(shadow_path)
+        precommit = read_json(precommit_path)
+        shadow_sha256 = canonical_sha256(shadow)
+        if (
+            shadow.get("candidate_sha256") != candidate_sha256
+            or precommit.get("candidate_sha256") != candidate_sha256
+            or precommit.get("shadow_report_sha256") != shadow_sha256
+            or rejection.get("shadow_report_sha256") != shadow_sha256
+            or shadow.get("preflight_disposition")
+            != rejection.get("preflight_disposition")
+        ):
+            raise ValueError("shadow candidate rejection replay changed")
+        parent_sha256 = precommit.get("parent_bundle_sha256")
+        outcomes = shadow.get("outcomes", ())
+        target_rows = [
+            row
+            for row in outcomes
+            if isinstance(row, dict) and row.get("role") == "target_failure"
+        ]
+        known_divergence_count = sum(
+            isinstance(row.get("earliest_divergence_step"), int)
+            for row in target_rows
+        )
+        target_count = int(shadow.get("target_count", len(target_rows)))
+        control_count = int(shadow.get("success_control_count", 0))
+        false_positives = int(shadow.get("success_control_false_positives", 0))
+        observed_rate = shadow.get("success_control_false_positive_rate")
+        if not isinstance(observed_rate, (int, float)) or isinstance(
+            observed_rate, bool
+        ):
+            observed_rate = false_positives / control_count if control_count else None
+        replay_summary = {
+            "target_count": target_count,
+            "target_detected_at_divergence": int(shadow.get("target_detected", 0)),
+            "target_triggered_anywhere": int(
+                shadow.get("target_triggered_anywhere", 0)
+            ),
+            "target_unknown_divergence_count": max(
+                0, target_count - known_divergence_count
+            ),
+            "success_control_count": control_count,
+            "success_control_false_positives": false_positives,
+            "success_control_false_positive_rate": observed_rate,
+            "preflight_disposition": shadow.get("preflight_disposition"),
+            "interpretation": (
+                "The previous detector fired on success controls and therefore "
+                "failed the frozen shadow gate. Materially change the detector "
+                "before changing recovery behavior, prioritizing zero false "
+                "positives on success controls. Unknown divergence rows are "
+                "diagnostic uncertainty, not target detections."
+            ),
+        }
+    elif rejection_kind == "trajectory_feature_contract_rejection":
+        parent_sha256 = rejection.get("parent_sha256")
+        feature_contract = rejection.get("feature_contract")
+        if not isinstance(feature_contract, dict):
+            raise ValueError("shadow feature-contract rejection changed")
+        replay_summary = {
+            "trajectory_count": int(feature_contract.get("trajectory_count", 0)),
+            "unsupported_feature_names": list(
+                feature_contract.get("unsupported_feature_names", ())
+            ),
+            "preflight_disposition": rejection.get("preflight_disposition"),
+            "interpretation": (
+                "The previous detector could not be evaluated on every action "
+                "row. Replace it with co-observed action-row features."
+            ),
+        }
+    else:
+        raise ValueError("unsupported shadow candidate rejection kind")
+
+    from zetta.evolution.stages import _candidate_from_payload
+
+    candidate = _candidate_from_payload(
+        read_json(output_path),
+        generation=store.manifest().generation,
+        parent_sha256=parent_sha256,
+        diagnosis=diagnosis,
+    )
+    if candidate.sha256 != rejection.get("candidate_sha256"):
+        raise ValueError("shadow candidate rejection candidate digest changed")
+    return candidate, replay_summary
+
+
+def _latest_shadow_rejection_for_active_diagnosis(
+    store: CampaignStore,
+) -> dict[str, Any] | None:
+    """Select the latest immutable unregistered rejection for active Stage2."""
+
+    diagnoses = store.diagnoses.records()
+    if not diagnoses:
+        return None
+    cluster_id = _diagnosis(diagnoses[-1]).cluster_id
+    matches = [
+        row
+        for row in _shadow_candidate_rejections(store)
+        if row.get("cluster_id") == cluster_id
+    ]
+    if not matches:
+        return None
+    ordered = sorted(
+        matches,
+        key=lambda row: (
+            _shadow_rejection_candidate_order(row),
+            str(row.get("candidate_sha256", "")),
+        ),
+    )
+    latest_order = _shadow_rejection_candidate_order(ordered[-1])
+    if (
+        sum(
+            _shadow_rejection_candidate_order(row) == latest_order
+            for row in ordered
+        )
+        != 1
+    ):
+        raise ValueError("latest shadow candidate rejection is ambiguous")
+    return ordered[-1]
+
+
 def _rejected_gate_refinement_context(
     store: CampaignStore,
     *,
@@ -1865,6 +2052,7 @@ def _rejected_gate_refinement_context(
     state = store.state()
     candidate_sha256 = state.get("candidate_sha256")
     operator_rejection: dict[str, Any] | None = None
+    shadow_rejection: dict[str, Any] | None = None
     if not isinstance(candidate_sha256, str) or not candidate_sha256:
         rejection_id = state.get("operator_rejection_id")
         matches = [
@@ -1878,7 +2066,54 @@ def _rejected_gate_refinement_context(
             operator_rejection = matches[0]
             candidate_sha256 = str(operator_rejection["candidate_sha256"])
         else:
-            return None
+            shadow_rejection = _latest_shadow_rejection_for_active_diagnosis(store)
+            if shadow_rejection is None:
+                return None
+            candidate_sha256 = str(shadow_rejection["candidate_sha256"])
+    if shadow_rejection is not None:
+        candidate, replay_summary = _candidate_from_shadow_rejection(
+            store, shadow_rejection
+        )
+        previous_candidate = {
+            key: candidate.as_dict().get(key)
+            for key in (
+                "candidate_id",
+                "causal_hypothesis",
+                "mechanism_change",
+                "validation_plan",
+                "critic_rules",
+                "recovery_rules",
+                "tool_plugin",
+            )
+        }
+        rejected_mechanisms = []
+        for prior in _shadow_candidate_rejections(store):
+            if prior.get("cluster_id") != shadow_rejection.get("cluster_id"):
+                continue
+            prior_candidate, _ = _candidate_from_shadow_rejection(store, prior)
+            rejected_mechanisms.append(
+                _mechanism_semantics_sha256(prior_candidate.as_dict())
+            )
+        return {
+            "mode": "refine_shadow_rejected_candidate",
+            "previous_candidate": previous_candidate,
+            "preflight_rejection": {
+                "rejection_id": shadow_rejection.get("rejection_id"),
+                "rejection_kind": shadow_rejection.get("rejection_kind"),
+                "preflight_disposition": shadow_rejection.get(
+                    "preflight_disposition"
+                ),
+            },
+            "previous_detector_replay": replay_summary,
+            "rejected_mechanism_sha256s": sorted(set(rejected_mechanisms)),
+            "gate_evidence": [],
+            "required_change": (
+                "Materially change the rejected detector/mechanism. First "
+                "eliminate every success-control false positive under the "
+                "frozen zero-rate gate; do not repeat any mechanism digest "
+                "listed in rejected_mechanism_sha256s."
+            ),
+        }
     decisions = [
         row
         for row in store.gates.records()

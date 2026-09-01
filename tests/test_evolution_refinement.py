@@ -31,6 +31,7 @@ from zetta.evolution.lifecycle import (
     _shadow_live_gate_admission,
     record_gate_and_advance,
     reject_registered_noop_candidate,
+    reject_shadow_candidate,
     run_proposal_stage,
 )
 from zetta.evolution.models import (
@@ -847,6 +848,22 @@ class _UnexpectedAgent:
         raise AssertionError("provider must not run while recovering candidate commit")
 
 
+class _ChangingShadowRefinementAgent:
+    init_values: dict[str, Any] = {}
+    proposal_values: dict[str, Any] = {}
+
+    def __init__(self, **values: Any) -> None:
+        type(self).init_values = values
+
+    def propose(self, **values: Any) -> CandidateBundle:
+        type(self).proposal_values = values
+        candidate = _candidate(
+            candidate_id="candidate-shadow-refined", diagnosis=values["diagnosis"]
+        )
+        critic = replace(candidate.critic_rules[0], threshold=0.02)
+        return replace(candidate, critic_rules=(critic,))
+
+
 def test_v3_style_shadow_false_positives_are_artifacted_before_live_gate(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -942,6 +959,107 @@ def test_v3_style_shadow_false_positives_are_artifacted_before_live_gate(
     assert shadow["live_gate_admission"]["threshold_source"] == "default_zero"
     assert shadow["preflight_disposition"] == (
         "rejected_success_control_false_positive_rate"
+    )
+
+    # The lifecycle fake bypasses CodexStageAgent's append-only writer, so
+    # materialize the same immutable attempt artifact the real Agent creates.
+    attempt_output = (
+        root
+        / "agents"
+        / "candidate-000"
+        / "stage2-proposal"
+        / "attempt-000"
+        / "output.json"
+    )
+    atomic_write_json(attempt_output, expected_candidate.as_dict())
+    rejection = reject_shadow_candidate(
+        campaign_root=root,
+        candidate_output=attempt_output,
+        reason="frozen zero-FP shadow admission failed",
+    )["rejection"]
+    refinement = _rejected_gate_refinement_context(
+        CampaignStore(root), artifact_index={"artifacts": []}
+    )
+    assert refinement is not None
+    assert refinement["mode"] == "refine_shadow_rejected_candidate"
+    assert refinement["preflight_rejection"]["rejection_id"] == rejection[
+        "rejection_id"
+    ]
+    assert refinement["gate_evidence"] == []
+    assert refinement["previous_candidate"]["critic_rules"]
+    assert refinement["previous_detector_replay"] == {
+        "target_count": 7,
+        "target_detected_at_divergence": 6,
+        "target_triggered_anywhere": 6,
+        "target_unknown_divergence_count": 7,
+        "success_control_count": 8,
+        "success_control_false_positives": 8,
+        "success_control_false_positive_rate": 1.0,
+        "preflight_disposition": "rejected_success_control_false_positive_rate",
+        "interpretation": refinement["previous_detector_replay"]["interpretation"],
+    }
+    assert len(refinement["rejected_mechanism_sha256s"]) == 1
+    prompt_value = json.dumps(refinement, ensure_ascii=False).lower()
+    for forbidden in ("/tmp/", "states.jsonl", "trajectory_sha256", '"seed"'):
+        assert forbidden not in prompt_value
+
+    precommit_path = shadow_path.with_suffix(".precommit.json")
+    precommit = json.loads(precommit_path.read_text(encoding="utf-8"))
+    atomic_write_json(
+        precommit_path,
+        {**precommit, "shadow_report_sha256": "0" * 64},
+        overwrite=True,
+    )
+    with pytest.raises(ValueError, match="replay changed"):
+        _rejected_gate_refinement_context(
+            CampaignStore(root), artifact_index={"artifacts": []}
+        )
+    atomic_write_json(precommit_path, precommit, overwrite=True)
+
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle.CodexStageAgent",
+        _ChangingShadowRefinementAgent,
+    )
+
+    def accepted_shadow(**values: Any) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "candidate_sha256": values["candidate"].sha256,
+            "parent_bundle_sha256": None,
+            "target_count": 1,
+            "target_detected": 1,
+            "target_triggered_anywhere": 1,
+            "success_control_count": 0,
+            "success_control_false_positives": 0,
+            "success_control_false_positive_rate": None,
+            "preflight_conclusive": True,
+            "passed_detection_preflight": True,
+            "outcomes": [
+                {
+                    "role": "target_failure",
+                    "trajectory_sha256": "6" * 64,
+                    "earliest_divergence_step": 0,
+                    "triggered": True,
+                    "detected_at_divergence": True,
+                }
+            ],
+            "report_sha256": "7" * 64,
+        }
+
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle.evaluate_shadow_replay", accepted_shadow
+    )
+    result = run_proposal_stage(
+        campaign_root=root,
+        tool_catalog={"tools": [{"name": CONTACT_PUSH_TOOL}]},
+    )
+    assert result["bundle"]["candidate_id"] == "candidate-shadow-refined"
+    assert _ChangingShadowRefinementAgent.init_values["session_id"] is None
+    assert _ChangingShadowRefinementAgent.init_values["thread_id"] is None
+    assert _ChangingShadowRefinementAgent.init_values["reconstructed"] is True
+    assert (
+        _ChangingShadowRefinementAgent.proposal_values["refinement_context"]
+        == refinement
     )
 
 

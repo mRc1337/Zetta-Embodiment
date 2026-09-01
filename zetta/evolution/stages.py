@@ -157,7 +157,10 @@ previous_detector_replay metrics as a hard design diagnostic. If the rejected
 detector fired on few target failures or only near the episode horizon, simplify
 or move the detector earlier; do not compensate by stacking additional guards
 that have no replay evidence. Preserve a zero/low success-control false-positive
-rate while improving target coverage. Recovery cannot establish causality when
+rate while improving target coverage. A shadow rejection with any success-control
+false positive requires a materially different detector before recovery tuning;
+unknown divergence rows are uncertainty, not detections. Never repeat a mechanism
+whose digest is listed in ``rejected_mechanism_sha256s``. Recovery cannot establish causality when
 the Critic leaves too little action horizon to execute it. Treat
 ``paired_gate_result.candidate_interventions`` and
 ``paired_gate_result.successful_candidate_interventions`` as attribution
@@ -1948,6 +1951,7 @@ class CodexStageAgent:
                             )
 
         previous_mechanism_sha256: str | None = None
+        rejected_mechanism_sha256s: set[str] = set()
         required_gate_evidence: set[str] = set()
         smoke_supported_offsets: set[tuple[float, float, float]] = set()
         if safe_refinement is not None:
@@ -1955,10 +1959,25 @@ class CodexStageAgent:
             if not isinstance(previous, dict):
                 raise ValueError("refinement context is missing previous_candidate")
             previous_mechanism_sha256 = _mechanism_semantics_sha256(previous)
+            rejected_mechanism_sha256s.add(previous_mechanism_sha256)
+            recorded_rejected_mechanisms = safe_refinement.get(
+                "rejected_mechanism_sha256s"
+            )
+            if recorded_rejected_mechanisms is not None:
+                if not isinstance(recorded_rejected_mechanisms, list) or any(
+                    not isinstance(value, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", value)
+                    for value in recorded_rejected_mechanisms
+                ):
+                    raise ValueError("refinement rejected mechanism history is malformed")
+                rejected_mechanism_sha256s.update(recorded_rejected_mechanisms)
             gate_evidence = safe_refinement.get("gate_evidence")
             operator_noop_refinement = (
                 safe_refinement.get("mode")
                 == "refine_operator_rejected_noop_candidate"
+            )
+            shadow_rejection_refinement = (
+                safe_refinement.get("mode") == "refine_shadow_rejected_candidate"
             )
             if operator_noop_refinement:
                 preflight = safe_refinement.get("preflight_rejection")
@@ -1991,6 +2010,19 @@ class CodexStageAgent:
                     raise ValueError(
                         "operator refinement has no successful smoke-supported offset"
                     )
+            elif shadow_rejection_refinement:
+                preflight = safe_refinement.get("preflight_rejection")
+                detector_replay = safe_refinement.get("previous_detector_replay")
+                if (
+                    not isinstance(preflight, dict)
+                    or not str(preflight.get("preflight_disposition", "")).startswith(
+                        "rejected_"
+                    )
+                    or not isinstance(detector_replay, dict)
+                ):
+                    raise ValueError("shadow refinement has no valid preflight rejection")
+                if gate_evidence not in (None, []):
+                    raise ValueError("shadow refinement must not claim live gate evidence")
             else:
                 if not isinstance(gate_evidence, list) or not gate_evidence:
                     raise ValueError("refinement context is missing gate evidence")
@@ -2069,7 +2101,7 @@ class CodexStageAgent:
                 candidate_mechanism_sha256 = _mechanism_semantics_sha256(
                     candidate.as_dict()
                 )
-                if candidate_mechanism_sha256 == previous_mechanism_sha256:
+                if candidate_mechanism_sha256 in rejected_mechanism_sha256s:
                     raise ValueError(
                         "Stage2 refinement repeated the rejected mechanism unchanged"
                     )

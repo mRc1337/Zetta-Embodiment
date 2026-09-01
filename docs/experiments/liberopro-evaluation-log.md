@@ -820,3 +820,29 @@ Ray 与模型进程退出，GPU compute process 列表为空；provider broker �
   `Missing environment variable: CODEX_GATEWAY_API_KEY` 失败。启动前加载既有
   `configs/providers.env` 并设置 `CODEX_HOME` 后可原位重试。日志只记录变量名和
   配置路径，不记录密钥值。
+
+### a4 前置修复：shadow rejection 反馈闭环
+
+a3 的 8 个 Stage2 `input.json` 中 `refinement_context` 均为 `null`。根因不是
+provider 或模型失效，而是 lifecycle 只会从已注册候选的 live gate rejection 和
+operator no-op rejection 构造 refinement context；shadow gate 在注册前拒绝候选，
+所以下一轮看不到上一候选及其假阳性统计，并反复生成近似的 gripper detector。
+
+修复后的 lifecycle 从 append-only shadow rejection 指向的 immutable Stage2
+attempt output 重建上一候选，并逐项校验 candidate output、candidate digest、shadow
+report 与 precommit digest。给下一轮的 prompt-safe context 只包含候选机制、target
+detection 聚合、unknown-divergence 数量和 success-control FP 聚合，不包含 seed、路径、
+trajectory ID 或 raw outcome。Stage2 必须使用 fresh provider thread，且 validator
+拒绝当前 cluster 历史中任何已拒绝 mechanism digest 的精确重复；冻结的 zero-FP
+门禁保持不变。
+
+对 a3 本地 immutable artifacts 的只读兼容性检查成功重建最新上下文：
+`target_count=33`、`target_detected_at_divergence=0`、
+`target_triggered_anywhere=31`、`target_unknown_divergence_count=33`、
+`success_control_false_positives=7/10`，并载入 8 个禁止重复的历史机制。定向及扩大
+回归分别为 `42 passed` 和 `105 passed`；Ruff lint 与 `git diff --check` 通过。
+另有 fail-closed 测试证明 shadow/precommit digest 被修改时不会生成 refinement。
+
+a4 仍须在新的 clean source revision 上重新物化并 source-fence；只有新候选通过
+zero-FP Proposal 门禁后，才能实际进入 Same-seed、Regression 与隔离的 held-out
+seeds 1–20。本节只记录前置修复，不预报 a4 的最终 Promote/Reject。
