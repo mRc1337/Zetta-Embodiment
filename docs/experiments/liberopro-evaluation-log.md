@@ -1133,3 +1133,72 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
 - 为保持 source attribution，包含该修复的提交不会直接注入 a13。下一轮必须对新
   revision 重新 source-fence；继续复用冻结 Pure VLA、Cluster/Diagnose 输入、视频与
   latency，只在新的 Proposal/Same-seed 线上产生新增证据。
+
+### a14：强制因果绑定修复后的真实扩展搜索终态
+
+- run id 为 `paper-v1-goal-t-t02-dev50-9b6208d-a14`，固定 clean source revision
+  `9b6208d47ef1f0f3db76c45ce7dc804b6e68e119`；source revision fence 为
+  clean/admitted。复用冻结 Pure VLA baseline：`50 valid`、`15 success / 35
+  failure`、`0 infra-invalid`，没有重新挂载模型或重复运行 baseline。
+- Cluster 形成 1 个主失败簇，Diagnose 接受 1 条诊断并进入 Proposal。a13 暴露的
+  Stage2 causal-isolation critic 顶层强制绑定问题在该 revision 上已修复；a14 能完成
+  Proposal validation 和 shadow replay，而不是再次以 runner error 终止。
+- 冻结候选预算为 15 轮：8 个候选在 strict zero-FP shadow preflight 被拒绝，7 个
+  候选通过 shadow admission 并真实运行 Same-seed；没有放宽 false-positive、成功率、
+  safety 或轨迹分歧门槛。
+
+| Same-seed 候选 | 有效 candidate arm | 成功 | 轨迹分歧 | 结论 |
+| --- | ---: | ---: | ---: | --- |
+| `b728a230…` | 23/35 | 5/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
+| `d632ccda…` | 30/35 | 12/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
+| `f718904d…` | 35/35 | 18/35 | 7/35 | 达到数值门槛但因果分歧不足，Reject |
+| `9b70535c…` | 35/35 | 21/35 | 6/35 | 达到数值门槛但因果分歧不足，Reject |
+| `adaa8cbe…` | 35/35 | 19/35 | 10/35 | 达到数值门槛但因果分歧不足，Reject |
+| `a7a6cc79…` | 35/35 | 19/35 | 11/35 | 达到数值门槛但因果分歧不足，Reject |
+| `e7d47246…` | 32/35 | 14/35 | 未进入必要判定 | 上界 17/35，确定性早停 Reject |
+
+- Same-seed 固定门槛为 `18/35`。其中 4 个候选的成功数达到门槛，但 reset state
+  全部匹配时，精确相机 digest 仅分别有 `7/35`、`6/35`、`10/35`、`11/35`
+  发生变化，未证明 Recovery 对成功轨迹产生足够的因果作用，因此均 fail closed。
+- 7 轮 Same-seed 共接受 `225` 条有效 candidate episode，另有 `3` 条
+  infra-invalid attempt；所有候选 safety event 均为 0。最终 state 为
+  `phase=complete`、`candidate_round=15`、`same_seed_gate_rounds=7`、
+  `optimization_outcome=maximum_total_candidate_rounds_exhausted`，正式结论为
+  terminal Reject。
+- 因无候选通过 Same-seed，Regression、held-out seeds 1–20 和 Promote 均未执行；
+  这是门禁协议要求的条件分支，不把未运行阶段伪装成完成结果。held-out 分区保持未使用。
+
+#### a14 延迟与视频汇总
+
+读取前使用 LoopX artifact classifier 将候选区 228 份、baseline 区 50 份
+`summary.json` 显式限定为 compact/public latency artifact，分类结果分别为
+`228 allowed / 0 blocked` 与 `50 allowed / 0 blocked`。只聚合 summary 字段，不读取
+episode record、轨迹、视频内容、worker/provider 日志或密钥。
+
+| 范围 / 组件 | count | weighted mean (ms) | max (ms) | 含该组件的 summary 数 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-seed / model inference | 9279 | 171.249 | 439.167 | 228 |
+| Same-seed / policy request e2e | 9279 | 209.041 | 477.168 | 228 |
+| Same-seed / chunk e2e | 9279 | 501.516 | 744.509 | 228 |
+| Same-seed / Critic evaluation | 18553 | 24.769 | 76.773 | 228 |
+| Same-seed / Role1 LLM request | 129 | 18361.330 | 228740.762 | 125 |
+| Same-seed / Recovery execution | 124 | 4576.032 | 10542.055 | 124 |
+| Same-seed / episode e2e | 228 | 39470.237 | 253830.730 | 228 |
+| Pure VLA / model inference | 2445 | 186.043 | 1189.770 | 50 |
+| Pure VLA / policy request e2e | 2445 | 226.570 | 1238.435 | 50 |
+| Pure VLA / episode e2e | 50 | 30826.847 | 49176.399 | 50 |
+
+- 228 份 Same-seed latency summary 共记录 `93261` 个事件；其中 125 个 attempt
+  产生 Role1 请求、124 个 attempt 执行 Recovery，证明 Critic-Recovery 实际进入
+  执行路径，而不是只生成离线 Proposal。冻结 baseline 的 50 份 summary 共
+  `20610` 个事件。
+- baseline 目录保存 `200/200` 个非空 MP4，Same-seed candidate 目录保存
+  `912/912` 个非空 MP4，合计 `1112` 个；这里只核验文件数量与非空性，不读取视频内容。
+- LoopX board 已将同一 a14 run id 从 `running` 更新为 `completed`，classification
+  为 `candidate_round_budget_exhausted_same_seed_causal_isolation_terminal_reject`，
+  `official_result_present=true`、`score_countable=false`，随后释放并发槽至 `0/1`。
+- 终态审计后已优雅停止本次复用的 `18730` 模型 runtime；端口不再监听且 GPU
+  compute process 列表为空。`4110` provider broker 保持运行，但不占用 GPU。
+- 在冻结 source worktree 上复跑 refinement、lifecycle、candidate gate、artifact
+  audit、LIBERO evolution runtime 与 held-out 隔离定向测试，结果为 `110 passed`；
+  controller shell syntax、terminal row JSON 与 `git diff --check` 同时通过。
