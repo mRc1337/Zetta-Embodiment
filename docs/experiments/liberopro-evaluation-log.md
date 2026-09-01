@@ -762,3 +762,59 @@ campaign 本地目录；本日志只记录公开安全的聚合状态。
 - 定向验证覆盖唯一绑定修复、视频多帧歧义拒绝、访问日志摘要校验与 Stage
   lifecycle：`67 passed`；扩大到 evolution、campaign、LIBERO runtime 与论文
   矩阵相关测试后为 `381 passed`（仅 3 条第三方 deprecation warning）。
+- 修复提交 `635696466073623c00cef44ee4e94c7a8a8e34b8` 已推送
+  `origin/main`；detached clean source 的 revision fence 通过。新矩阵仍为
+  4×10 tasks、每 task 50 个 development seeds 与 20 个 held-out seeds；针对
+  Goal-T task2 的 compact equivalence receipt 确认除 source revision 外，seed、
+  policy RNG、horizon、evolution policy 与 latency contract 均和 a2 相同。
+
+### a3：视觉引用修复 revision 上的同协议重跑
+
+- run id：`paper-v1-goal-t-t02-dev50-6356964-a3`；独立
+  `state-a3/queue-a3`，单 `local0` worker、`--concurrency 1`。
+- Pure VLA 最终为 `50/50 valid`、`10 success / 40 failure`，成功率 `20.0%`，
+  `0 infra-invalid`；队列终态为 `50 completed / 0 failed`。该结果仅属于
+  development baseline，不是 held-out 正式分数。
+- Cluster 选择 `visual-cluster-e831c25681cfb65b`；Diagnose 的公开安全结论为：
+  酒瓶已被抓取并偏心接近碗，随后碰撞造成碗倾倒或位移，在形成 containment 前
+  提前松爪或失去抓持。
+- Stage2 在冻结预算内生成 8 个真实 Recovery Proposal。8/8 均由 shadow replay
+  fail closed，success-control 假阳性率依次为
+  `0.5, 0.5, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7`，而配置上限为 `0`；每个候选均写入
+  immutable rejection，没有放宽阈值、授权 falsification 或绕过门禁。
+- 第 8 个候选登记后，supervisor 正常进入 `phase=complete`，终态为
+  `candidate_round_limit_exhausted` / `no_candidate_passed_primary_or_secondary`。
+  因没有候选通过 Proposal 门禁，Same-seed、Regression、Held-out 1–20 和 Promote
+  均未执行；本次 Harness 结论为正式 Reject，而不是 runner-invalid。
+
+#### a3 延迟与 artifact 汇总
+
+50 个 episode 的 50 份 compact latency summary 共记录 `21786` 个事件。下表的
+mean 按事件数加权；p50/p95 是 50 个 episode 各自 mean 的分位数，max 是所有
+episode summary 中的最大单次值。
+
+| 组件 | count | weighted mean (ms) | episode-mean p50 (ms) | episode-mean p95 (ms) | max (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| action decode/postprocess | 2592 | 0.157 | 0.155 | 0.179 | 4.184 |
+| model inference | 2592 | 200.021 | 199.869 | 218.482 | 501.712 |
+| policy queue wait | 2592 | 20.842 | 20.701 | 21.421 | 37.346 |
+| policy request end-to-end | 2592 | 242.441 | 241.498 | 263.127 | 543.945 |
+| observation preprocess | 2592 | 2.657 | 2.554 | 3.181 | 43.478 |
+| environment execution | 3092 | 135.781 | 129.663 | 168.028 | 1184.032 |
+| Critic evaluation | 3092 | 0.007 | 0.007 | 0.007 | 0.054 |
+| chunk end-to-end | 2592 | 534.875 | 524.419 | 601.793 | 1740.437 |
+| episode end-to-end | 50 | 34964.853 | 38743.049 | 43927.243 | 49899.880 |
+
+`role1_llm_request` 与 `recovery_execution` 没有事件，原因是 8 个候选均在 shadow
+门禁被拒绝，不能进入 live Recovery。campaign 本地共有 `200` 个非空 MP4；仅做
+文件计数和空文件校验，不读取、不提交视频、轨迹、agent transcript 或 worker log。
+
+#### a3 恢复运行时问题
+
+- `run_campaign.py --worker-command` 接收的是后续 argv；若将整条 worker 命令包成
+  一个 shell 字符串，会以该完整字符串作为可执行文件并触发 `FileNotFoundError`。
+  修复为按参数传入 Python、模块、queue、host 和 concurrency。
+- 非登录 shell 不会自动继承 provider 密钥；Stage2 会以
+  `Missing environment variable: CODEX_GATEWAY_API_KEY` 失败。启动前加载既有
+  `configs/providers.env` 并设置 `CODEX_HOME` 后可原位重试。日志只记录变量名和
+  配置路径，不记录密钥值。
