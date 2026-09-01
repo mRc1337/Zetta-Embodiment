@@ -633,3 +633,58 @@ LoopX experiment board 当前有 206 个 terminal 行：200 条有效固定-runn
 - 本轮 pure Pi0.5 未触发 Role1/recovery；这两个组件的真实 LLM/恢复延迟需要在启用 Critic 与 Role1 的独立实验中测量。
 - 正式矩阵继续固定在 `d0463d0` clean source worktree；四个 task0 已各完成 50/50 个 development seeds。下一步检查 failure-cluster/medoid 状态并扩展其余 36 个任务，完成开发与 patch 冻结流程后才可触碰 held-out 1–20。
 - 不得引用项目 README 的 90.8% 作为本机结果。
+
+## 2026-09-01 — 单条 Critic → Role1 → Recovery 闭环诊断
+
+本节是 development-only wiring smoke，不是论文正式成绩，不进入前述 200 条
+strict pure-VLA development episode 的分母。测试对象为 Goal-S task0、development
+seed 21；合成 bundle 固定一条 `episode.step_index >= 12` Critic rule，并绑定一条
+两步 `set_gripper` Recovery。LoopX 中所有尝试均登记为 `diagnostic_only` explore，
+`score_countable=false`。
+
+### 问题与修复
+
+1. a0/a1 均在 reset 阶段失败，公开摘要分别为 connection reset 和 broken pipe；
+   根因是启动 runtime 时遗漏 NVIDIA GLVND vendor manifest，MuJoCo 无法创建 headless
+   EGL context。重新通过 `activate_zetta_libero.sh` 注入 `MUJOCO_GL=egl`、
+   `PYOPENGL_PLATFORM=egl` 和 `__EGL_VENDOR_LIBRARY_FILENAMES` 后，预检得到完整的
+   CUDA→EGL 0–3 映射，reset 恢复正常。两次失败均记为 `runner_invalid`。
+2. a2 已触发 Critic 并发出 3 次真实 Role1 LLM 请求，但严格输出校验均拒绝
+   `Role1 model must return exactly one bare JSON object`，Recovery 未执行。根因是
+   `CodexPlanner` 将包含 transport/reasoning 标记的完整渲染流作为一条模型消息交给
+   Role1，而非 SDK 的 final response。修复后完整渲染流仍留在本地审计 artifact，
+   下游 `PlannerResult.messages` 只接收 final response；无 final event 时保留旧回退。
+   修复提交为 `7341eec69ae60c91fb70b9dc44cadee934068341`，38 项
+   Codex/Role1 定向测试通过，clean source fence 通过。
+
+### a3 实际闭环结果
+
+- episode：`valid`，任务官方 success=false；后者只表示 Pi0.5 未在 horizon 内完成
+  抽屉任务，不影响本节的机制闭环判定。
+- Critic：合成 rule 在 step 12 单次触发（cooldown 10000）。
+- Role1：1 次真实 `gpt-5.6-sol` / `high` 请求，生成并持久化 1 个 decision。
+- Recovery：Actor 取得唯一环境写权限，执行 1 次 `set_gripper` Recovery；
+  `candidate_intervention=true`，随后控制权返回 Pi0.5 并跑完 episode。
+- 闭环判定：`Critic=1 / Role1 decision=1 / Recovery execution=1`，通过。
+- 总耗时 62.352 s，共 515 条 latency events；仅用于 wiring/latency diagnosis。
+
+分组件延迟（ms）：
+
+| component | count | mean | p50 | p95 | max |
+|---|---:|---:|---:|---:|---:|
+| observation preprocess | 61 | 2.817 | 2.481 | 3.256 | 17.643 |
+| policy queue wait | 61 | 20.737 | 20.672 | 21.035 | 22.914 |
+| model inference | 61 | 229.051 | 186.626 | 320.552 | 890.110 |
+| action decode/postprocess | 61 | 0.159 | 0.155 | 0.198 | 0.270 |
+| policy request end-to-end | 61 | 272.639 | 231.365 | 367.060 | 934.101 |
+| environment execution | 73 | 118.128 | 130.459 | 178.179 | 214.270 |
+| Critic evaluation | 73 | 38.125 | 40.483 | 52.487 | 125.076 |
+| Role1 LLM request | 1 | 18095.800 | 18095.800 | 18095.800 | 18095.800 |
+| Recovery execution | 1 | 236.967 | 236.967 | 236.967 | 236.967 |
+| chunk end-to-end | 61 | 597.650 | 572.952 | 699.822 | 1207.564 |
+| episode end-to-end | 1 | 62351.816 | 62351.816 | 62351.816 | 62351.816 |
+
+本地保存三份非空视频 artifact：agentview 110678 bytes、wrist 198952 bytes、
+multiview 303432 bytes。它们位于本次 a3 的 `episode/videos/` 下，按 classifier
+标记为非 compact 私有诊断 artifact，因此只保存在本机，不读取、不提交。原始轨迹、
+privileged state、Role1 消息和 worker log 同样没有进入仓库或 LoopX board。
