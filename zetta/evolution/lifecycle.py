@@ -880,13 +880,20 @@ def _diagnostic_telemetry_payload(
     row: dict[str, Any],
     *,
     episode_alias: str,
+    resolver: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Build a compact, seed-blind Critic trace from immutable rollout state."""
 
     artifact_index = row.get("artifact_index")
     if not isinstance(artifact_index, dict):
         return None
-    states_path = _existing_artifact_path(store, row, artifact_index.get("states"))
+    states_path = _existing_frozen_artifact_path(
+        store,
+        row,
+        artifact_index,
+        artifact_index.get("states"),
+        resolver=resolver,
+    )
     if states_path is None:
         return None
 
@@ -1014,6 +1021,7 @@ def _register_diagnostic_telemetry(
         store,
         row,
         episode_alias=episode_alias,
+        resolver=resolver,
     )
     if payload is None:
         return None
@@ -1585,6 +1593,42 @@ def _observed_critic_features(
     if require_command_rows:
         return tuple(sorted(stable_features or ()))
     return tuple(sorted(features))
+
+
+def _shadow_replay_trajectories(
+    store: CampaignStore,
+    *,
+    target_episode_ids: set[str],
+) -> tuple[
+    tuple[tuple[EpisodeRecord, Path], ...],
+    tuple[tuple[EpisodeRecord, Path], ...],
+]:
+    """Resolve frozen target and success-control trajectories for replay."""
+
+    target_records: list[tuple[EpisodeRecord, Path]] = []
+    success_controls: list[tuple[EpisodeRecord, Path]] = []
+    resolver = _load_resolver(store)
+    for row in store.episodes.records():
+        record = EpisodeRecord.from_dict(row)
+        index = row.get("artifact_index")
+        states_path = (
+            _existing_frozen_artifact_path(
+                store,
+                row,
+                index,
+                index.get("states"),
+                resolver=resolver,
+            )
+            if isinstance(index, dict)
+            else None
+        )
+        if states_path is None:
+            continue
+        if record.episode_id in target_episode_ids:
+            target_records.append((record, states_path))
+        elif record.success:
+            success_controls.append((record, states_path))
+    return tuple(target_records), tuple(success_controls)
 
 
 def _candidate_feature_contract(
@@ -4910,22 +4954,10 @@ def _run_proposal_stage_locked(
             if row.get("status") == "valid" and row.get("success") is False
         }
         shadow_target_mode = "legacy_all_failures_fallback"
-    target_records: list[tuple[EpisodeRecord, Path]] = []
-    success_controls: list[tuple[EpisodeRecord, Path]] = []
-    for row in store.episodes.records():
-        record = EpisodeRecord.from_dict(row)
-        index = row.get("artifact_index")
-        states_path = (
-            _existing_artifact_path(store, row, index.get("states"))
-            if isinstance(index, dict)
-            else None
-        )
-        if states_path is None:
-            continue
-        if record.episode_id in target_episode_ids:
-            target_records.append((record, states_path))
-        elif record.success:
-            success_controls.append((record, states_path))
+    target_records, success_controls = _shadow_replay_trajectories(
+        store,
+        target_episode_ids=target_episode_ids,
+    )
     bound_target_ids = {record.episode_id for record, _ in target_records}
     if bound_target_ids != target_episode_ids:
         missing = sorted(target_episode_ids - bound_target_ids)

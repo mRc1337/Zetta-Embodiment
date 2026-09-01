@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from scripts.evolution.rebind_migrated_artifact_resolver import repair_campaign
-from zetta.evolution.lifecycle import _observed_critic_features
+from zetta.evolution.lifecycle import (
+    _observed_critic_features,
+    _shadow_replay_trajectories,
+)
 from zetta.evolution.models import CampaignManifest, EpisodeRecord
 from zetta.evolution.store import CampaignStore
 
@@ -66,8 +69,10 @@ def _campaign_with_migrated_locators(
     video_payload = b"private-video-bytes"
     states_payload = (
         b'{"state":{"command.available":false,"reset_only":1}}\n'
-        b'{"state":{"command.available":true,"command.gripper":1,"stable":1}}\n'
-        b'{"state":{"command.available":true,"command.gripper":-1,"stable":2}}\n'
+        b'{"state":{"command.available":true,"command.gripper":1,'
+        b'"command.realization.stalled":false,"stable":1}}\n'
+        b'{"state":{"command.available":true,"command.gripper":-1,'
+        b'"command.realization.stalled":true,"stable":2}}\n'
     )
     for relative, payload in (
         (relative_action, action_payload),
@@ -149,6 +154,7 @@ def test_rebinds_missing_frozen_sources_and_verifies_complete_index(
 
     assert receipt["artifact_index_verified"] is True
     assert receipt["artifact_index"]["artifact_count"] >= 3
+    assert receipt["artifact_index"]["diagnostic_telemetry_count"] == 1
     assert ledger.read_bytes() == ledger_before
     resolver = json.loads(
         (store.root / ".harness-private" / "artifact-resolver.json").read_text()
@@ -165,8 +171,16 @@ def test_rebinds_missing_frozen_sources_and_verifies_complete_index(
     assert _observed_critic_features(store, require_command_rows=True) == (
         "command.available",
         "command.gripper",
+        "command.realization.stalled",
         "stable",
     )
+    targets, controls = _shadow_replay_trajectories(
+        store,
+        target_episode_ids={"episode-private"},
+    )
+    assert len(targets) == 1
+    assert controls == ()
+    assert targets[0][1].is_relative_to(store.root.resolve())
 
 
 def test_observed_features_reject_tampered_rebound_state(tmp_path: Path) -> None:

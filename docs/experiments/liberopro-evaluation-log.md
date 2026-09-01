@@ -1062,3 +1062,21 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
 - 扩大 evolution、candidate gate 和 LIBERO runtime 相关回归集合为
   `307 passed`。下一次在包含此修复的新 clean revision 上创建 a11，继续第 8 轮
   Proposal；冻结的 Pure VLA、Cluster、Diagnose、视频与 latency 仍直接复用。
+
+### a11：Shadow replay 轨迹 resolver 缺口
+
+- resolver 修复已以 revision `6247914ba8c588ca73ed043c91f9eff8b592c72d`
+  提交并同步远端。a11 通过 clean source fence，复用冻结证据后保持 episode
+  ledger 原字节，且 4560 个引用全部通过 resolver/index 校验。大体量轨迹、
+  图像和视频以只读硬链接复用，可追加 ledger 使用独立 inode。
+- Stage2 已收到 34 个非空 Critic 特征并生成新输出，说明 a10 的空 catalog
+  缺陷已修复。但后续 shadow replay 收集 27 个 target trajectory 时另一处仍调用
+  旧的 `_existing_artifact_path()`，因此同样将迁移后的冻结 states 误判为缺失。
+- 失败发生在 shadow 计算前：没有注册新 candidate，没有运行 Same-seed episode，
+  也没有使用 held-out seeds 1–20。LoopX board 已将 a11 终结为
+  `runner_invalid`，classification 为
+  `shadow_replay_migrated_state_locator_runner_error`，并释放并发槽。
+- 前置修复将 shadow replay trajectory 和诊断 telemetry 的 states 读取一并改为
+  manifest-scoped resolver + accepted SHA-256 复核，以覆盖所有剩余的 Harness
+  states 消费路径。新增回归同时证明迁移后能生成非空诊断 telemetry，且
+  shadow target path 严格位于当前 campaign 内；定向集合 `95 passed`。
