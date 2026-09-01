@@ -94,6 +94,27 @@ def test_diagnosis_telemetry_contract_and_access_are_audited(tmp_path: Path) -> 
     )
 
 
+def test_structured_access_can_continue_across_validation_repair_attempts(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "attempt-000.jsonl"
+    second = tmp_path / "attempt-001.jsonl"
+    first.write_text(
+        json.dumps({"content_id": "trace-a", "kind": "structured"}) + "\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        json.dumps({"content_id": "trace-b", "kind": "structured"}) + "\n",
+        encoding="utf-8",
+    )
+
+    CodexStageAgent._validate_structured_access(
+        second,
+        required_content_ids={"trace-a", "trace-b"},
+        inherited_logs=((first, None),),
+    )
+
+
 def _diagnosis_payload() -> dict[str, Any]:
     return {
         "diagnosis_id": "diagnosis-stall",
@@ -331,6 +352,123 @@ def test_stage_recovers_completed_attempt_after_validator_fix(
         "output_sha256": canonical_sha256(recovered),
         "revalidated_completed_attempt": True,
     }
+
+
+def test_stage_repairs_validator_failure_on_the_same_provider_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str | None, dict[str, Any]]] = []
+
+    class FakePlanner:
+        def __init__(self, resume: str | None):
+            self.resume = resume
+
+        def solve(self, **kwargs: Any) -> PlannerResult:
+            request = json.loads(kwargs["user_message"])
+            calls.append((self.resume, request))
+            if self.resume is None:
+                return PlannerResult(
+                    messages=[{"content": json.dumps({"accepted": False})}],
+                    stats={"thread_id": "thread-repair", "thread_resumed": False},
+                )
+            return PlannerResult(
+                messages=[{"content": json.dumps({"accepted": True})}],
+                stats={"thread_id": "thread-repair", "thread_resumed": True},
+            )
+
+    monkeypatch.setattr(
+        "zetta.evolution.stages.build_planner",
+        lambda _kind, **kwargs: FakePlanner(kwargs.get("codex_thread_id")),
+    )
+
+    def validate(value: dict[str, Any]) -> None:
+        if value.get("accepted") is not True:
+            raise ValueError("one required evidence class is missing")
+
+    root = tmp_path / "repair"
+    result = CodexStageAgent(output_root=root)._invoke(
+        stage="stage1-diagnosis",
+        system_prompt="system",
+        payload={"objective": "diagnose"},
+        validator=validate,
+    )
+
+    assert result == {"accepted": True}
+    assert [resume for resume, _ in calls] == [None, "thread-repair"]
+    assert calls[1][1]["validation_repair"] == {
+        "instruction": (
+            "The previous full JSON object failed the local contract. Use the "
+            "same thread and return one corrected full JSON object. Preserve "
+            "valid evidence and use tools only for missing evidence."
+        ),
+        "failed_attempt_sha256": canonical_sha256({"accepted": False}),
+        "validation_error": "one required evidence class is missing",
+        "repair_index": 1,
+        "repair_limit": 1,
+    }
+    assert calls[1][1]["original_request"] == {"objective": "diagnose"}
+    stage = root / "stage1-diagnosis"
+    assert read_json(stage / "context.json")["successful_attempt"] == "attempt-001"
+
+
+def test_stage_resumes_an_uncommitted_validator_failure_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "restart-repair"
+    stage = root / "stage1-diagnosis"
+    attempt = stage / "attempt-000"
+    attempt.mkdir(parents=True)
+    payload = {"objective": "diagnose"}
+    atomic_write_json(stage / "input.json", payload, overwrite=False)
+    atomic_write_json(
+        attempt / "output.json", {"accepted": False}, overwrite=False
+    )
+    (attempt / "evidence-access.jsonl").write_text("", encoding="utf-8")
+    atomic_write_json(
+        attempt / "invocation.json",
+        {
+            "session_id": "session-repair",
+            "provider_thread_id": "thread-repair",
+            "model": None,
+            "reasoning_effort": None,
+            "provider_reported_resumed": False,
+            "reconstructed": False,
+            "error": None,
+        },
+        overwrite=False,
+    )
+    calls: list[str | None] = []
+
+    class FakePlanner:
+        def __init__(self, resume: str | None):
+            self.resume = resume
+
+        def solve(self, **_: Any) -> PlannerResult:
+            calls.append(self.resume)
+            return PlannerResult(
+                messages=[{"content": json.dumps({"accepted": True})}],
+                stats={"thread_id": "thread-repair", "thread_resumed": True},
+            )
+
+    monkeypatch.setattr(
+        "zetta.evolution.stages.build_planner",
+        lambda _kind, **kwargs: FakePlanner(kwargs.get("codex_thread_id")),
+    )
+
+    def validate(value: dict[str, Any]) -> None:
+        if value.get("accepted") is not True:
+            raise ValueError("repair this output")
+
+    result = CodexStageAgent(output_root=root)._invoke(
+        stage="stage1-diagnosis",
+        system_prompt="system",
+        payload=payload,
+        validator=validate,
+    )
+
+    assert result == {"accepted": True}
+    assert calls == ["thread-repair"]
+    assert read_json(stage / "context.json")["successful_attempt"] == "attempt-001"
 
 
 def _diagnosis() -> CausalDiagnosis:

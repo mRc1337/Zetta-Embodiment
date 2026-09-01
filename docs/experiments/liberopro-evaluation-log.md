@@ -864,3 +864,41 @@ seeds 1–20。本节只记录前置修复，不预报 a4 的最终 Promote/Reje
 - 首个运行检查点为 `4 completed / 0 failed / 1 running`；4 条均已生成 compact
   latency summary，共有 16 个非空 MP4。尚未进入 Cluster/Diagnose/Proposal，
   因此当前不报告成功率或 Recovery 结论。
+
+### a4 终止：Diagnose 视觉证据合同未满足
+
+- Pure VLA 完成 `50/50 valid`、`15 success / 35 failure`，development 成功率
+  `30.0%`，`0 infra-invalid`。Cluster 正常完成并选出主失败簇；这仍不是 held-out
+  正式分数。
+- Stage1 Diagnose 的同一 provider thread 完成 4 个模型 turn、36 次工具调用，实际读取
+  3 条 compact telemetry 和 11 张图片。成功对照与事件窗要求均满足，但目标失败簇的
+  episode overview 只读取并引用了 2 个，低于冻结合同要求的 3 个，validator 因此
+  fail closed。
+- a4 在 `phase=diagnose` 终止，未生成 Recovery Proposal；Same-seed、Regression、
+  held-out 1–20 和 Promote/Reject 均未开始。因此该 run 记为 `runner_invalid`，不是
+  Proposal Reject，也不能用 30% baseline 声称 Harness 提升。
+- 50 份 compact latency summary 共 `20610` 个事件：model inference weighted mean
+  `186.043 ms`、policy request end-to-end `226.570 ms`、episode end-to-end
+  `30826.847 ms`。本地保存 `200` 个非空 MP4；仅核验数量与非空性，不读取或提交
+  视频、轨迹、provider transcript 和密钥。
+- LoopX board 已将同一 run id 从 `running` 更新为 `runner_invalid`，classification
+  为 `diagnosis_visual_evidence_contract_runner_error`，`score_countable=false`。
+
+### a5 前置修复：有上限的 validator 纠错
+
+Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API、Ray 或门禁阈值问题；
+缺口在于模型输出可局部修正时 Harness 直接终止。修复保持所有视觉/遥测 gate 不变：
+
+1. validator 失败后最多允许 1 次定向纠错，并必须优先续接同一 provider thread；
+2. 纠错请求只携带原始请求、失败输出 digest 和 validator 原因，不把失败输出改写为
+   已接受结果；
+3. 前一 attempt 的 immutable evidence-access 日志按 digest 验证后加入视觉与结构化
+   证据审计连续性，纠错只需补读缺失证据；
+4. provider thread 无法续接时仍走既有 fresh reconstruction；纠错后再次不满足合同则
+   fail closed，跨进程恢复也不会无限增加纠错次数。
+
+验证结果：Stage session、framework repair、lifecycle 与 refinement 定向集合
+`90 passed`；扩大 evolution 集合除一个未改动的 fake capacity throughput 用例外
+`187 passed / 1 deselected`。该 capacity 用例单独复跑仍因其自身 capacity level
+判定为 false 失败，与本次改动文件无交集。下一步在新 revision 上建立 clean source、
+重新物化同协议矩阵并启动 a5；held-out seeds 在前置阶段继续保持隔离。

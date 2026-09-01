@@ -949,6 +949,7 @@ class CodexStageAgent:
         reconstructed: bool = False,
         environment_name: str = "robocasa",
         max_artifact_reads: int | None = 12,
+        max_validation_repairs: int = 1,
         inherited_evidence_access_logs: tuple[
             tuple[str | Path, str | None], ...
         ] = (),
@@ -971,6 +972,9 @@ class CodexStageAgent:
         if max_artifact_reads is not None and not 1 <= max_artifact_reads <= 64:
             raise ValueError("max_artifact_reads must be in [1,64] or null")
         self.max_artifact_reads = max_artifact_reads
+        if max_validation_repairs not in {0, 1}:
+            raise ValueError("max_validation_repairs must be 0 or 1")
+        self.max_validation_repairs = int(max_validation_repairs)
         self.inherited_evidence_access_logs = tuple(
             (Path(path), expected_sha256)
             for path, expected_sha256 in inherited_evidence_access_logs
@@ -1195,12 +1199,42 @@ class CodexStageAgent:
                 validator(recovered)
             return recovered
 
+        def validate_attempt(
+            attempt: Path,
+            metadata: dict[str, Any],
+            recovered: dict[str, Any],
+            *,
+            prior_attempt_logs: tuple[tuple[Path, str | None], ...] = (),
+        ) -> None:
+            if require_visual_evidence:
+                self._validate_visual_access(
+                    attempt / "evidence-access.jsonl",
+                    recovered,
+                    expected_log_sha256=metadata.get("visual_access_log_sha256"),
+                    inherited_logs=(
+                        *self.inherited_evidence_access_logs,
+                        *prior_attempt_logs,
+                    ),
+                )
+            if required_structured_evidence_ids:
+                self._validate_structured_access(
+                    attempt / "evidence-access.jsonl",
+                    required_content_ids=required_structured_evidence_ids,
+                    expected_log_sha256=metadata.get("visual_access_log_sha256"),
+                    inherited_logs=prior_attempt_logs,
+                )
+            if validator is not None:
+                validator(recovered)
+
         # A process may finish the provider call and persist an attempt output,
         # then fail a local validator before the canonical output/context commit.
         # Revalidate that immutable attempt before spending another API call. This
         # is particularly important when a validator false-positive is fixed: the
         # transcript and provider thread already exist and must not be replayed.
         recoverable: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
+        validation_failures: list[
+            tuple[Path, dict[str, Any], str, TypeError | ValueError]
+        ] = []
         for attempt in sorted(invocation.glob("attempt-*")):
             attempt_output = attempt / "output.json"
             attempt_invocation = attempt / "invocation.json"
@@ -1222,23 +1256,13 @@ class CodexStageAgent:
             ) != self.reasoning_effort:
                 continue
             recovered = read_json(attempt_output)
+            recovered_sha256 = canonical_sha256(recovered)
             try:
-                if require_visual_evidence:
-                    self._validate_visual_access(
-                        attempt / "evidence-access.jsonl",
-                        recovered,
-                        expected_log_sha256=metadata.get("visual_access_log_sha256"),
-                        inherited_logs=self.inherited_evidence_access_logs,
-                    )
-                if required_structured_evidence_ids:
-                    self._validate_structured_access(
-                        attempt / "evidence-access.jsonl",
-                        required_content_ids=required_structured_evidence_ids,
-                        expected_log_sha256=metadata.get("visual_access_log_sha256"),
-                    )
-                if validator is not None:
-                    validator(recovered)
-            except (TypeError, ValueError):
+                validate_attempt(attempt, metadata, recovered)
+            except (TypeError, ValueError) as exc:
+                validation_failures.append(
+                    (attempt, metadata, recovered_sha256, exc)
+                )
                 continue
             provider_thread_id = metadata.get("provider_thread_id")
             if not isinstance(provider_thread_id, str) or not provider_thread_id:
@@ -1277,8 +1301,11 @@ class CodexStageAgent:
             return recovered
 
         def run_attempt(
-            *, resume_thread_id: str | None, reconstruct: bool
-        ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any]]:
+            *,
+            resume_thread_id: str | None,
+            reconstruct: bool,
+            request_payload: dict[str, Any],
+        ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any], Path]:
             existing = sorted(invocation.glob("attempt-*"))
             attempt = invocation / f"attempt-{len(existing):03d}"
             attempt.mkdir(parents=False, exist_ok=False)
@@ -1315,7 +1342,9 @@ class CodexStageAgent:
                 )
                 result = planner.solve(
                     system_prompt=effective_system,
-                    user_message=json.dumps(payload, ensure_ascii=False, indent=2),
+                    user_message=json.dumps(
+                        request_payload, ensure_ascii=False, indent=2
+                    ),
                     toolkit=toolkit,
                     max_turns=self.max_turns,
                 )
@@ -1355,48 +1384,139 @@ class CodexStageAgent:
             }
             atomic_write_json(attempt / "invocation.json", metadata, overwrite=False)
             if result.error:
-                return None, str(result.error), metadata
+                return None, str(result.error), metadata, attempt
             text = "\n".join(
                 str(message.get("content", "")) for message in result.messages
             )
             parsed = _extract_json_object(text)
             atomic_write_json(attempt / "output.json", parsed, overwrite=False)
-            if require_visual_evidence:
-                self._validate_visual_access(
-                    access_log,
-                    parsed,
-                    expected_log_sha256=metadata["visual_access_log_sha256"],
-                    inherited_logs=self.inherited_evidence_access_logs,
-                )
-            if required_structured_evidence_ids:
-                self._validate_structured_access(
-                    access_log,
-                    required_content_ids=required_structured_evidence_ids,
-                    expected_log_sha256=metadata["visual_access_log_sha256"],
-                )
-            if validator is not None:
-                validator(parsed)
-            return parsed, None, metadata
+            return parsed, None, metadata, attempt
 
-        resume_id = self.thread_id
-        parsed, error, metadata = run_attempt(
-            resume_thread_id=resume_id,
-            reconstruct=self.reconstructed and resume_id is None,
-        )
-        if error is None and resume_id is not None:
-            resumed = bool(metadata.get("provider_reported_resumed", False))
-            returned_id = metadata.get("provider_thread_id")
-            if not resumed or returned_id != resume_id:
-                parsed = None
-                error = "provider did not confirm persistent thread continuity"
-        if error is not None and resume_id is not None:
-            self.reconstructed = True
-            parsed, error, metadata = run_attempt(
-                resume_thread_id=None,
-                reconstruct=True,
+        def invoke_with_provider_recovery(
+            *,
+            resume_thread_id: str | None,
+            reconstruct: bool,
+            request_payload: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any], Path, bool]:
+            parsed, error, metadata, attempt = run_attempt(
+                resume_thread_id=resume_thread_id,
+                reconstruct=reconstruct,
+                request_payload=request_payload,
             )
-        if error is not None or parsed is None:
-            raise RuntimeError(f"Codex {stage} failed: {error}")
+            if error is None and resume_thread_id is not None:
+                resumed = bool(metadata.get("provider_reported_resumed", False))
+                returned_id = metadata.get("provider_thread_id")
+                if not resumed or returned_id != resume_thread_id:
+                    parsed = None
+                    error = "provider did not confirm persistent thread continuity"
+            used_reconstruction = reconstruct
+            if error is not None and resume_thread_id is not None:
+                self.reconstructed = True
+                parsed, error, metadata, attempt = run_attempt(
+                    resume_thread_id=None,
+                    reconstruct=True,
+                    request_payload=request_payload,
+                )
+                used_reconstruction = True
+            if error is not None or parsed is None:
+                raise RuntimeError(f"Codex {stage} failed: {error}")
+            return parsed, metadata, attempt, used_reconstruction
+
+        prior_attempt_logs: tuple[tuple[Path, str | None], ...] = ()
+        if validation_failures:
+            if len(validation_failures) > self.max_validation_repairs:
+                raise validation_failures[-1][3]
+            failed_attempt, failed_metadata, failed_output_sha256, failure = (
+                validation_failures[-1]
+            )
+            failed_thread_id = failed_metadata.get("provider_thread_id")
+            if not isinstance(failed_thread_id, str) or not failed_thread_id.strip():
+                raise failure
+            self.session_id = str(failed_metadata["session_id"])
+            resume_id = failed_thread_id.strip()
+            request_payload = {
+                "validation_repair": {
+                    "instruction": (
+                        "The previous full JSON object failed the local contract. "
+                        "Use the same thread and return one corrected full JSON "
+                        "object. Preserve valid evidence and use tools only for "
+                        "missing evidence."
+                    ),
+                    "failed_attempt_sha256": failed_output_sha256,
+                    "validation_error": str(failure),
+                    "repair_index": len(validation_failures),
+                    "repair_limit": self.max_validation_repairs,
+                },
+                "original_request": payload,
+            }
+            prior_attempt_logs = (
+                (
+                    failed_attempt / "evidence-access.jsonl",
+                    failed_metadata.get("visual_access_log_sha256"),
+                ),
+            )
+            reconstruct = False
+        else:
+            resume_id = self.thread_id
+            request_payload = payload
+            reconstruct = self.reconstructed and resume_id is None
+
+        parsed, metadata, attempt, used_reconstruction = invoke_with_provider_recovery(
+            resume_thread_id=resume_id,
+            reconstruct=reconstruct,
+            request_payload=request_payload,
+        )
+        try:
+            validate_attempt(
+                attempt,
+                metadata,
+                parsed,
+                prior_attempt_logs=(() if used_reconstruction else prior_attempt_logs),
+            )
+        except (TypeError, ValueError) as failure:
+            if validation_failures or self.max_validation_repairs == 0:
+                raise
+            provider_thread_id = metadata.get("provider_thread_id")
+            if not isinstance(provider_thread_id, str) or not provider_thread_id.strip():
+                raise
+            repair_payload = {
+                "validation_repair": {
+                    "instruction": (
+                        "The previous full JSON object failed the local contract. "
+                        "Use the same thread and return one corrected full JSON "
+                        "object. Preserve valid evidence and use tools only for "
+                        "missing evidence."
+                    ),
+                    "failed_attempt_sha256": canonical_sha256(
+                        read_json(attempt / "output.json")
+                    ),
+                    "validation_error": str(failure),
+                    "repair_index": 1,
+                    "repair_limit": self.max_validation_repairs,
+                },
+                "original_request": payload,
+            }
+            prior_attempt_logs = (
+                (
+                    attempt / "evidence-access.jsonl",
+                    metadata.get("visual_access_log_sha256"),
+                ),
+            )
+            parsed, metadata, attempt, used_reconstruction = (
+                invoke_with_provider_recovery(
+                    resume_thread_id=provider_thread_id.strip(),
+                    reconstruct=False,
+                    request_payload=repair_payload,
+                )
+            )
+            validate_attempt(
+                attempt,
+                metadata,
+                parsed,
+                prior_attempt_logs=(
+                    () if used_reconstruction else prior_attempt_logs
+                ),
+            )
         provider_thread_id = metadata.get("provider_thread_id")
         if not isinstance(provider_thread_id, str) or not provider_thread_id.strip():
             raise RuntimeError(f"Codex {stage} returned no persistent thread id")
@@ -1489,21 +1609,31 @@ class CodexStageAgent:
         *,
         required_content_ids: set[str],
         expected_log_sha256: str | None = None,
+        inherited_logs: tuple[tuple[Path, str | None], ...] = (),
     ) -> None:
         if not required_content_ids:
             return
-        if not path.is_file():
-            raise ValueError("required structured-evidence access log is missing")
-        if expected_log_sha256 is not None and file_sha256(path) != expected_log_sha256:
-            raise ValueError("structured-evidence access log changed after invocation")
         delivered: set[str] = set()
-        with path.open(encoding="utf-8") as stream:
-            for line in stream:
-                if not line.strip():
-                    continue
-                row = json.loads(line)
-                if row.get("kind") == "structured":
-                    delivered.add(str(row.get("content_id")))
+        for access_path, expected_sha256 in (
+            (path, expected_log_sha256),
+            *inherited_logs,
+        ):
+            if not access_path.is_file():
+                raise ValueError("required structured-evidence access log is missing")
+            if (
+                expected_sha256 is not None
+                and file_sha256(access_path) != expected_sha256
+            ):
+                raise ValueError(
+                    "structured-evidence access log changed after invocation"
+                )
+            with access_path.open(encoding="utf-8") as stream:
+                for line in stream:
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    if row.get("kind") == "structured":
+                        delivered.add(str(row.get("content_id")))
         missing = required_content_ids - delivered
         if missing:
             raise ValueError(
