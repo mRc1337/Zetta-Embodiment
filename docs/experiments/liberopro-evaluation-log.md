@@ -1080,3 +1080,26 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
   manifest-scoped resolver + accepted SHA-256 复核，以覆盖所有剩余的 Harness
   states 消费路径。新增回归同时证明迁移后能生成非空诊断 telemetry，且
   shadow target path 严格位于当前 campaign 内；定向集合 `95 passed`。
+
+### a12：第 8 轮 Proposal 的严格 shadow Reject
+
+- a12 在 clean revision `e24d98d8d0e23cdf17e782f796218bf8bbd14a4f` 上通过
+  source fence。迁移后 228 条 accepted episode ledger 保持原字节；4120 个 artifact
+  与 50 份 diagnostic telemetry 均可通过 manifest-scoped resolver 解析。冻结的
+  Pure VLA、Cluster、Diagnose、视频和 latency 继续复用，没有重复消耗 GPU。
+- Stage2 能解析 27/27 条目标失败轨迹和 15/15 条 success controls，并生成第 8 轮
+  Recovery Proposal。候选摘要为
+  `475f4afb...`；shadow replay 在 success controls 上误触 `10/15`，违反冻结的
+  zero-FP 门禁，故在任何 live Same-seed rollout 前被拒绝。
+- 主失败簇的 8 轮候选预算至此耗尽，终态为 `phase=complete`、
+  `candidate_round=8`、
+  `optimization_outcome=no_candidate_passed_primary_or_secondary`。本轮没有运行新的
+  Same-seed、Regression 或 held-out；held-out seeds 1–20 仍保持隔离未使用。
+- LoopX board 已将 run
+  `paper-v1-goal-t-t02-dev50-e24d98d-a12` 更新为 `completed`，classification 为
+  `candidate_round_budget_exhausted_terminal_reject`、`score_countable=false`，并已
+  释放并发槽。该 Reject 证明严格门禁按预期工作，但尚未完成目标中的完整
+  Same-seed → Regression → Held-out 链。
+- 下一轮按 diagnostic extended-search protocol 扩大搜索范围，同时保持 success
+  controls `0 FP`、Same-seed `14/27`、Regression 前置以及 held-out 隔离不变；只有
+  前置 gate 全部通过后才允许运行 held-out。
