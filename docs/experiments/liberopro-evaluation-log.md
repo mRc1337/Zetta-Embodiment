@@ -1000,3 +1000,37 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
 - a7 已停止，避免对同一确定性基础设施错误继续重试；其 LoopX running 行将在新
   revision admission 前以 runner-invalid 终结。第 7 轮候选将迁移到 a8，修复前的
   infra-invalid attempt 不计分，并从同一冻结 Same-seed 配对集合继续。
+
+### a8：第 7 轮确定性 Reject 与中断恢复缺口
+
+- a8 在 clean revision `acfa3cf085b483138114d2d8e6172e68eb5ae772` 上恢复第 7 轮
+  Same-seed。EGL 修复后得到 14 条有效 candidate episode，成功 `0/14`；此前 32 条
+  EGL 基础设施错误保留为不计分证据。剩余 13 条即使全部成功也只能达到 `13/27`，
+  低于冻结门槛 `14/27`，因此 gate 已形成确定性 early Reject。
+- gate decision 已 append，但进程在 phase 迁移前中断。原 gate runner 恢复逻辑只
+  处理“无 decision”的状态，无法重放已有决定；修复提交
+  `8ef82750e5f691a7b75ca23dcf79c4b454bca9e9` 后，38 项 gate/lifecycle 测试通过，
+  clean source fence 通过。
+- a8 的旧 shadow rejection 与 gate plan 绑定旧 manifest，不能直接作为新 manifest
+  权限使用。a8 因而在 LoopX board 归档为 `runner_invalid`，classification 为
+  `cross_revision_shadow_rejection_manifest_binding_runner_error`，不是策略失败；其
+  candidate rollout、视频和延迟证据原样保留。
+
+### a9：跨 revision locator 恢复失败与前置修复
+
+- a9 将旧 shadow rejection 和 gate plan 派生重签到新 manifest，并保持 parent
+  EpisodeRecord 原字节；恢复重放已从 `same_seed_gate` 正确推进到第 8 轮
+  `propose`。旧 infrastructure-recovery authorization 绑定退役 plan digest，按规则
+  只归档、不继承权限。
+- 首次启动在 Proposal artifact index 构建阶段 fail closed：
+  `accepted episode artifact locator is unsafe`。此时尚未调用模型、未运行新 episode，
+  held-out seeds 1–20 仍未使用。
+- 根因是 immutable EpisodeRecord 中的绝对 rollout locator 必须保持原字节，迁移后
+  仍指向旧 campaign；私有、manifest-scoped artifact resolver 已正确重绑到新 campaign，
+  但生命周期的 frozen-digest 快速路径没有使用该 resolver。
+- 前置修复只允许按 accepted digest、campaign-scoped keyed content ID 和当前 campaign
+  内文件恢复 locator；不改写 EpisodeRecord，不允许越界路径，也不跳过实际证据读取时
+  的 SHA-256 复核。新增回归证明跨 root 后 episode ledger 字节不变、Agent index
+  不变且证据仍可解析。扩大 evolution/gate/runtime 定向集合为 `267 passed`；Ruff
+  lint 与 `git diff --check` 通过。下一次必须在包含此修复的新 clean revision 上迁移
+  为独立 run，再继续第 8 轮 Proposal。

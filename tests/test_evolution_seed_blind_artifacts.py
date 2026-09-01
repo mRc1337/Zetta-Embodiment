@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -526,3 +527,61 @@ def test_diagnostic_telemetry_is_compact_and_keeps_privileged_transitions(
     visible = json.dumps(index, ensure_ascii=False).lower()
     assert "policy_rng" not in visible
     assert "seed-314159" not in visible
+
+
+def test_agent_index_uses_rebound_resolver_for_frozen_absolute_locator(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "source-campaign"
+    video = source_root / "captures" / "overview.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"large-video-placeholder")
+    digest = hashlib.sha256(video.read_bytes()).hexdigest()
+
+    source_store = CampaignStore(source_root)
+    source_store.initialize(_manifest())
+    source_store.record_episode(
+        _record(
+            status="valid",
+            logical_id="logical-seed-314159-valid",
+            episode_id="episode-seed-314159-valid",
+            seed=314159,
+            policy_rng=271828,
+            artifact_index={
+                "visual_evidence": {
+                    "artifacts": {"overview_contact_sheet": str(video)},
+                    "artifact_sha256": {"overview_contact_sheet": digest},
+                }
+            },
+        )
+    )
+    source_index = _agent_artifact_index(source_store)
+    source_episode_bytes = (source_root / "ledgers" / "episodes.jsonl").read_bytes()
+
+    target_root = tmp_path / "target-campaign"
+    shutil.copytree(source_root, target_root)
+    resolver_path = target_root / ".harness-private" / "artifact-resolver.json"
+    resolver = read_json(resolver_path)
+    for entry in resolver["entries"].values():
+        for source in entry["sources"]:
+            path = source.get("path")
+            if isinstance(path, str) and path.startswith(str(source_root.resolve())):
+                source["path"] = str(target_root.resolve()) + path[
+                    len(str(source_root.resolve())) :
+                ]
+    resolver_path.write_text(json.dumps(resolver), encoding="utf-8")
+
+    target_index = _agent_artifact_index(CampaignStore(target_root))
+
+    assert target_index == source_index
+    assert (
+        target_root / "ledgers" / "episodes.jsonl"
+    ).read_bytes() == source_episode_bytes
+    target_resolver = read_json(resolver_path)
+    content_id = _content_id_for_path(
+        target_resolver, target_root / "captures" / "overview.mp4"
+    )
+    resolved = resolve_agent_artifact(target_root, content_id)
+    assert resolved["path"] == str(
+        (target_root / "captures" / "overview.mp4").resolve()
+    )

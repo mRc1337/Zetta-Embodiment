@@ -337,6 +337,47 @@ def _lexical_artifact_paths(
     return tuple(normalized)
 
 
+def _resolver_file_paths_for_digest(
+    store: CampaignStore,
+    resolver: dict[str, Any],
+    digest: str,
+) -> tuple[Path, ...]:
+    """Recover current in-campaign paths for a frozen content digest.
+
+    Cross-revision campaign resumes preserve accepted EpisodeRecord bytes, so
+    their absolute rollout-time locators can point at the prior campaign root.
+    The private resolver is explicitly rebound and manifest-scoped during the
+    migration; use that mapping without re-hashing every large video here.
+    ``resolve_agent_artifact`` still verifies bytes before returning evidence.
+    """
+
+    content_id = _content_id(resolver=resolver, digest=digest)
+    entry = resolver.get("entries", {}).get(content_id)
+    if not isinstance(entry, dict):
+        return ()
+    if (
+        entry.get("content_sha256") != digest
+        or entry.get("agent_hash") != _agent_hash(resolver=resolver, digest=digest)
+    ):
+        raise ValueError("artifact resolver entry failed keyed-integrity validation")
+    campaign_root = store.root.resolve()
+    paths: list[Path] = []
+    for source in entry.get("sources", ()):
+        if not isinstance(source, dict) or source.get("kind") != "file":
+            continue
+        value = source.get("path")
+        if not isinstance(value, str) or not value or "\n" in value:
+            continue
+        resolved = Path(value).resolve()
+        if (
+            resolved.is_relative_to(campaign_root)
+            and resolved.is_file()
+            and resolved not in paths
+        ):
+            paths.append(resolved)
+    return tuple(paths)
+
+
 def _source_digest(
     store: CampaignStore,
     row: dict[str, Any],
@@ -345,8 +386,13 @@ def _source_digest(
     role: str,
     raw_key: str | None = None,
     frozen_digests_by_path: dict[str, str] | None = None,
+    resolver: dict[str, Any] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
-    frozen_digest = None
+    frozen_digest = (
+        (frozen_digests_by_path or {}).get(str(value))
+        if isinstance(value, str)
+        else None
+    )
     path = None
     if frozen_digests_by_path:
         for candidate in _lexical_artifact_paths(store, row, value):
@@ -354,6 +400,10 @@ def _source_digest(
             if frozen_digest is not None:
                 path = candidate
                 break
+    if path is None and frozen_digest is not None and resolver is not None:
+        rebound = _resolver_file_paths_for_digest(store, resolver, frozen_digest)
+        if rebound:
+            path = rebound[0]
     if path is None:
         path = _existing_artifact_path(store, row, value)
     if path is not None:
@@ -401,6 +451,7 @@ def _frozen_artifact_digests_by_path(
     store: CampaignStore,
     row: dict[str, Any],
     artifact_index: dict[str, Any],
+    resolver: dict[str, Any],
 ) -> dict[str, str]:
     """Recover rollout-time artifact hashes from one accepted EpisodeRecord."""
 
@@ -425,7 +476,10 @@ def _frozen_artifact_digests_by_path(
                 raise ValueError("episode artifact provenance has a malformed digest")
             paths = _lexical_artifact_paths(store, row, locator)
             if not paths:
+                paths = _resolver_file_paths_for_digest(store, resolver, digest)
+            if not paths:
                 raise ValueError("accepted episode artifact locator is unsafe")
+            frozen[str(locator)] = digest
             for path in paths:
                 key = str(path)
                 existing = frozen.get(key)
@@ -573,6 +627,7 @@ def _episode_evidence_items(
     row: dict[str, Any],
     *,
     episode_role: str,
+    resolver: dict[str, Any],
 ) -> list[tuple[str, str, str, dict[str, Any]]]:
     """Return every immutable evidence object belonging to one valid episode."""
 
@@ -620,7 +675,7 @@ def _episode_evidence_items(
     artifact_index = row.get("artifact_index", {})
     if isinstance(artifact_index, dict):
         frozen_digests = _frozen_artifact_digests_by_path(
-            store, row, artifact_index
+            store, row, artifact_index, resolver
         )
         for raw_key, value in sorted(
             artifact_index.items(), key=lambda item: str(item[0])
@@ -632,6 +687,7 @@ def _episode_evidence_items(
                 role="indexed_artifact",
                 raw_key=str(raw_key),
                 frozen_digests_by_path=frozen_digests,
+                resolver=resolver,
             )
             items.append(
                 (
@@ -654,6 +710,15 @@ def _episode_evidence_items(
                     ),
                     None,
                 )
+                if (
+                    nested_path is None
+                    and isinstance(nested_value, str)
+                    and str(nested_value) in frozen_digests
+                ):
+                    rebound = _resolver_file_paths_for_digest(
+                        store, resolver, frozen_digests[str(nested_value)]
+                    )
+                    nested_path = rebound[0] if rebound else None
                 if nested_path is None:
                     nested_path = _existing_artifact_path(
                         store, row, nested_value
@@ -667,6 +732,7 @@ def _episode_evidence_items(
                     role="indexed_artifact",
                     raw_key=nested_key,
                     frozen_digests_by_path=frozen_digests,
+                    resolver=resolver,
                 )
                 items.append(
                     (
@@ -696,6 +762,7 @@ def _register_episode_evidence(
         store,
         row,
         episode_role=episode_role,
+        resolver=resolver,
     ):
         descriptor = _register_artifact(
             resolver=resolver,
@@ -1742,6 +1809,7 @@ def _gate_descriptors_for_candidate(
             store,
             row,
             episode_role=role,
+            resolver=resolver,
         ):
             key = (_content_id(resolver=resolver, digest=digest), artifact_type)
             descriptor = visible.get(key)
