@@ -808,6 +808,8 @@ episode summary 中的最大单次值。
 `role1_llm_request` 与 `recovery_execution` 没有事件，原因是 8 个候选均在 shadow
 门禁被拒绝，不能进入 live Recovery。campaign 本地共有 `200` 个非空 MP4；仅做
 文件计数和空文件校验，不读取、不提交视频、轨迹、agent transcript 或 worker log。
+terminal board 写回与 concurrency release 完成后，`18730` runtime 已优雅停止，
+Ray 与模型进程退出，GPU compute process 列表为空；provider broker 保持运行。
 
 #### a3 恢复运行时问题
 
