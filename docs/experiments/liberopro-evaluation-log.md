@@ -846,3 +846,21 @@ trajectory ID 或 raw outcome。Stage2 必须使用 fresh provider thread，且 
 a4 仍须在新的 clean source revision 上重新物化并 source-fence；只有新候选通过
 zero-FP Proposal 门禁后，才能实际进入 Same-seed、Regression 与隔离的 held-out
 seeds 1–20。本节只记录前置修复，不预报 a4 的最终 Promote/Reject。
+
+### 2026-09-01T09:10:46Z — a4 source-fenced run 启动
+
+- source revision：`80c3385564a10ae920826049dd42c35183fee553`。detached source
+  worktree 为 clean；本地、expected revision 与刷新后的 `origin/main` 完全一致，
+  LoopX source revision fence 返回 `admitted=true`。
+- 重新物化的论文矩阵仍为 4 个 setting、每 setting 10 个 task、每 task 50 个
+  development seeds；所有 init state 非空，held-out seeds 1–20 与 development
+  分区隔离。归一化 source revision 后，a4 与 a3 的 campaign plan 无差异。
+- LoopX board 已预登记 running row
+  `paper-v1-goal-t-t02-dev50-80c3385-a4`，attempt 为 4；运行期间 metrics 为空且
+  `score_countable=false`。
+- Runtime 使用短 Ray 临时目录，避免 AF_UNIX socket 超过 107 字节；健康检查为
+  1/1 env rank healthy。运行限定单 `local0` worker 和 `--concurrency 1`，provider
+  配置只通过进程环境注入，不记录密钥。
+- 首个运行检查点为 `4 completed / 0 failed / 1 running`；4 条均已生成 compact
+  latency summary，共有 16 个非空 MP4。尚未进入 Cluster/Diagnose/Proposal，
+  因此当前不报告成功率或 Recovery 结论。
