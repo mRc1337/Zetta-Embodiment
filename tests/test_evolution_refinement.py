@@ -48,6 +48,7 @@ from zetta.evolution.models import (
     RecoveryStep,
 )
 from zetta.evolution.stages import (
+    _bind_causal_isolation_output_contract,
     _validate_causal_isolation_candidate,
     blind_artifact_index,
 )
@@ -246,6 +247,42 @@ def test_causal_isolation_prefers_proven_trigger_and_underexposed_recovery() -> 
         )
         is None
     )
+
+
+def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:
+    critic_rules = [{"rule_id": "critic-proven", "evidence_ids": []}]
+    recovery_steps = [
+        {"tool": "pi0_pick", "parameters": {}, "stop_when": "done"}
+    ]
+    payload: dict[str, Any] = {
+        "objective": "Refine one candidate.",
+        "constraints": {},
+        "output_schema": {
+            "critic_rules": [{"rule_id": "string"}],
+            "recovery_rules": [{"steps": [{"tool": "catalog tool"}]}],
+        },
+    }
+
+    _bind_causal_isolation_output_contract(
+        payload,
+        {
+            "preserve_critic_rules_byte_for_byte": critic_rules,
+            "reuse_recovery_steps_byte_for_byte": recovery_steps,
+        },
+    )
+
+    assert payload["output_schema"]["critic_rules"] == critic_rules
+    assert payload["output_schema"]["recovery_rules"][0]["steps"] == recovery_steps
+    assert payload["mandatory_causal_isolation_output"] == {
+        "instruction": (
+            "Copy every value in this object literally into the corresponding "
+            "output field. Do not rename, summarize, reorder, or regenerate it."
+        ),
+        "critic_rules": critic_rules,
+        "recovery_steps": recovery_steps,
+    }
+    assert payload["constraints"]["critic_rules_equal_mandatory_binding"] is True
+    assert payload["constraints"]["recovery_steps_equal_mandatory_binding"] is True
 
 
 def test_replicated_development_calibration_preserves_the_proven_trigger() -> None:

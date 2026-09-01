@@ -604,6 +604,62 @@ def _validate_causal_isolation_candidate(
         )
 
 
+def _bind_causal_isolation_output_contract(
+    payload: dict[str, Any], directive: dict[str, Any] | None
+) -> None:
+    """Expose Harness-owned literal bindings at the Stage2 output surface.
+
+    Keeping the directive only inside refinement history makes exact-copy
+    requirements easy for a provider to miss, especially after a validation
+    repair. Mirror the immutable values into the output schema and a dedicated
+    top-level contract while retaining the fail-closed validator below.
+    """
+
+    if not isinstance(directive, dict):
+        return
+    output_schema = payload.get("output_schema")
+    constraints = payload.get("constraints")
+    if not isinstance(output_schema, dict) or not isinstance(constraints, dict):
+        raise ValueError("Stage2 payload is missing its output contract")
+
+    binding: dict[str, Any] = {
+        "instruction": (
+            "Copy every value in this object literally into the corresponding "
+            "output field. Do not rename, summarize, reorder, or regenerate it."
+        )
+    }
+    required_critics = directive.get("preserve_critic_rules_byte_for_byte")
+    if isinstance(required_critics, list):
+        binding["critic_rules"] = required_critics
+        output_schema["critic_rules"] = required_critics
+        constraints["critic_rules_equal_mandatory_binding"] = True
+
+    required_steps = directive.get("reuse_recovery_steps_byte_for_byte")
+    if isinstance(required_steps, list):
+        binding["recovery_steps"] = required_steps
+        recovery_schema = output_schema.get("recovery_rules")
+        if isinstance(recovery_schema, list) and recovery_schema and isinstance(
+            recovery_schema[0], dict
+        ):
+            recovery_schema[0]["steps"] = required_steps
+        constraints["recovery_steps_equal_mandatory_binding"] = True
+
+    required_tool = directive.get("required_recovery_tool")
+    required_parameters = directive.get("required_recovery_parameters")
+    if required_tool is not None or required_parameters is not None:
+        binding["required_recovery_tool"] = required_tool
+        binding["required_recovery_parameters"] = required_parameters
+        constraints["recovery_tool_parameters_include_mandatory_binding"] = True
+
+    if len(binding) > 1:
+        payload["mandatory_causal_isolation_output"] = binding
+        payload["objective"] = (
+            f"{payload['objective']} The mandatory_causal_isolation_output "
+            "object is a literal output contract and overrides free-form "
+            "generation for the named fields."
+        )
+
+
 def _redact_evidence_text(value: str) -> str:
     value = _PATH_EVIDENCE.sub("[redacted-locator]", value)
     return _SENSITIVE_EVIDENCE.sub("[redacted-sensitive-metadata]", value)
@@ -2179,6 +2235,7 @@ class CodexStageAgent:
             if isinstance(isolation_directive, dict)
             else None
         )
+        _bind_causal_isolation_output_contract(payload, isolation_directive)
         if isinstance(required_critic_rules, list):
             for rule in required_critic_rules:
                 if isinstance(rule, dict):

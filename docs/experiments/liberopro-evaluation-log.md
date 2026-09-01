@@ -1103,3 +1103,33 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
 - 下一轮按 diagnostic extended-search protocol 扩大搜索范围，同时保持 success
   controls `0 FP`、Same-seed `14/27`、Regression 前置以及 held-out 隔离不变；只有
   前置 gate 全部通过后才允许运行 held-out。
+
+### a13：扩展候选搜索与 Stage2 强制绑定修复
+
+- a13 在 clean revision `1551a7ee2416c76bd288d44f9b3103e9109a333f` 上通过
+  source fence，并以硬链接/append-only ledger 复用冻结的 50 条 Pure VLA：
+  `50 valid`、`15 success`、`35 failure`、`0 infra-invalid`。Cluster 重新形成 1 个
+  主失败簇，Diagnose 接受 1 条诊断；held-out seeds 1–20 未读取、未调度。
+- 已登记的前五个 live candidate 全部保持 strict zero-FP shadow admission，但未达到
+  Same-seed `15/29` 门槛。确定性 early Reject 依次为：`5/20`、`9/24`、`3/18`、
+  `2/17`、`4/19` 个有效 candidate arm 成功；每次都在“剩余 arm 全成功仍最多
+  `14/29`”时停止。另有 4 个 Proposal 在 shadow success controls 上出现假阳性而
+  被 preflight Reject。Regression 和 held-out 均未开始。
+- 第 10 轮 Proposal 连续 8 次未形成 canonical Stage2 output，本地 fail-closed 原因为
+  `Stage2 refinement violated the causal isolation critic binding`：模型没有逐字复用
+  Harness 选定的 proven critic。旧 a13 控制器错误地把任意 Proposal 非零退出都当成
+  “已有 immutable shadow replay 的 Reject”，随后触发
+  `shadow candidate rejection has no immutable replay` 并退出。失败尝试全部移入
+  `.harness-private` 隔离区，未登记为 candidate、未消耗门禁轮次，也未运行 GPU
+  rollout。
+- 控制器已增加错误分流：只有 canonical Stage2 output 才可进入 shadow Reject；
+  validator 前失败的尝试可恢复隔离并有限重试。8 次同类失败证明仅重采样不足后，
+  a13 停止继续消耗 API。
+- 正式源码修复把 `preserve_critic_rules_byte_for_byte` 和
+  `reuse_recovery_steps_byte_for_byte` 从嵌套 refinement history 提升为 Stage2 顶层
+  `mandatory_causal_isolation_output`，同时把 literal 值写入 output schema；原有
+  fail-closed validator 保留。相关 refinement/session 测试 `46 passed`，Python
+  compile 与 `git diff --check` 通过。
+- 为保持 source attribution，包含该修复的提交不会直接注入 a13。下一轮必须对新
+  revision 重新 source-fence；继续复用冻结 Pure VLA、Cluster/Diagnose 输入、视频与
+  latency，只在新的 Proposal/Same-seed 线上产生新增证据。
