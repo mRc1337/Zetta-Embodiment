@@ -661,6 +661,62 @@ def test_feature_contract_rejection_is_append_only_and_counts_candidate_round(
     assert store.candidate_ledger.records() == []
 
 
+def test_exhausted_feature_contract_rounds_complete_as_reject(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "contract-rejection-exhausted"
+    manifest = replace(
+        _manifest(),
+        runtime={
+            "evolution_policy": {
+                "max_candidate_rounds_per_cluster": 1,
+                "maximum_target_clusters": 1,
+            }
+        },
+    )
+    store = CampaignStore(root)
+    store.initialize(manifest)
+    store.transition(CampaignPhase.CLUSTER)
+    store.transition(CampaignPhase.DIAGNOSE)
+    diagnosis = _diagnosis()
+    store.register_diagnosis(diagnosis)
+    store.transition(CampaignPhase.PROPOSE)
+    candidate = _candidate(candidate_id="candidate-contract", diagnosis=diagnosis)
+    output = (
+        root
+        / "agents"
+        / "candidate-000"
+        / "stage2-proposal"
+        / "attempt-000"
+        / "output.json"
+    )
+    atomic_write_json(output, candidate.as_dict())
+    _record_candidate_feature_contract_rejection(
+        store=store,
+        candidate=candidate,
+        candidate_output=output,
+        contract={
+            "schema_version": 1,
+            "eligible": False,
+            "unsupported_feature_names": ["privileged.missing"],
+            "trajectory_reports": [],
+        },
+        reason="unsupported feature",
+    )
+
+    result = run_proposal_stage(
+        campaign_root=root,
+        tool_catalog={"tools": [{"name": CONTACT_PUSH_TOOL}]},
+    )
+
+    assert result["candidate_rejected"] is True
+    assert result["rejection_reason"] == "candidate_round_limit_exhausted"
+    assert result["state"]["phase"] == CampaignPhase.COMPLETE.value
+    assert result["state"]["optimization_outcome"] == (
+        "no_candidate_passed_primary_or_secondary"
+    )
+
+
 def test_registered_noop_candidate_is_rejected_before_live_gate(
     tmp_path: Path,
 ) -> None:

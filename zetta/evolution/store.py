@@ -29,7 +29,9 @@ ALLOWED_TRANSITIONS: dict[CampaignPhase, set[CampaignPhase]] = {
     # process that had already advanced before a crash can recover cleanly.
     CampaignPhase.CLUSTER: {CampaignPhase.DIAGNOSE, CampaignPhase.COMPLETE},
     CampaignPhase.DIAGNOSE: {CampaignPhase.PROPOSE, CampaignPhase.COMPLETE},
-    CampaignPhase.PROPOSE: {CampaignPhase.SAME_SEED_GATE},
+    # COMPLETE is the bounded reject outcome when every preregistered
+    # candidate round is exhausted before a candidate reaches the live gate.
+    CampaignPhase.PROPOSE: {CampaignPhase.SAME_SEED_GATE, CampaignPhase.COMPLETE},
     CampaignPhase.SAME_SEED_GATE: {
         CampaignPhase.DIAGNOSE,
         CampaignPhase.PROPOSE,

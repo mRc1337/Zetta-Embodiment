@@ -1389,6 +1389,7 @@ def _observed_critic_features(
     """
 
     features: set[str] = set()
+    stable_features: set[str] | None = None
     rows = list(store.episodes.records())
     rows.extend(row for _, row, _ in _completed_gate_episode_rows(store))
     for row in rows:
@@ -1419,9 +1420,33 @@ def _observed_critic_features(
             for state in rows_payload
             if state.get("command.available") is True
         ]
-        selected_rows = command_rows if require_command_rows and command_rows else rows_payload
-        for state in selected_rows:
-            features.update(_scalar_feature_names(state))
+        selected_rows = (
+            command_rows
+            if require_command_rows and command_rows
+            else rows_payload
+        )
+        if not require_command_rows:
+            for state in selected_rows:
+                features.update(_scalar_feature_names(state))
+            continue
+
+        row_features = [_scalar_feature_names(state) for state in selected_rows]
+        first_seen: dict[str, int] = {}
+        for row_index, names in enumerate(row_features):
+            for name in names:
+                first_seen.setdefault(name, row_index)
+        trajectory_stable = {
+            name
+            for name, first_index in first_seen.items()
+            if all(name in names for names in row_features[first_index:])
+        }
+        stable_features = (
+            trajectory_stable
+            if stable_features is None
+            else stable_features & trajectory_stable
+        )
+    if require_command_rows:
+        return tuple(sorted(stable_features or ()))
     return tuple(sorted(features))
 
 
@@ -3320,10 +3345,25 @@ def _advance_after_candidate_rejection(
 ) -> tuple[CampaignPhase, dict[str, Any]]:
     """Choose refine, secondary-cluster, or bounded completion after rejection."""
 
-    candidate = read_json(
-        store.root / "candidates" / candidate_sha256 / "bundle.json"
-    )
-    cluster_id = _diagnosis_cluster_id(store, str(candidate["diagnosis_sha256"]))
+    candidate_path = store.root / "candidates" / candidate_sha256 / "bundle.json"
+    if candidate_path.is_file():
+        candidate = read_json(candidate_path)
+        cluster_id = _diagnosis_cluster_id(
+            store, str(candidate["diagnosis_sha256"])
+        )
+    else:
+        rejection_matches = [
+            row
+            for row in (
+                *_shadow_candidate_rejections(store),
+                *_operator_candidate_rejections(store),
+            )
+            if row.get("candidate_sha256") == candidate_sha256
+            and isinstance(row.get("cluster_id"), str)
+        ]
+        if len(rejection_matches) != 1:
+            raise ValueError("rejected candidate cluster binding is ambiguous")
+        cluster_id = str(rejection_matches[0]["cluster_id"])
     rejected = _rejected_candidates_for_cluster(store, cluster_id)
     if candidate_sha256 not in rejected:
         raise ValueError("candidate rejection is not recorded in the immutable ledger")
@@ -3341,6 +3381,12 @@ def _advance_after_candidate_rejection(
         return CampaignPhase.PROPOSE, {
             "candidate_round": len(rejected) + 1,
             "optimization_outcome": "refine_active_cluster",
+        }
+    if policy["maximum_target_clusters"] <= 1:
+        return CampaignPhase.COMPLETE, {
+            "candidate_sha256": None,
+            "candidate_round": len(rejected),
+            "optimization_outcome": "no_candidate_passed_primary_or_secondary",
         }
 
     cluster_report = load_accepted_cluster_report(store)
@@ -4334,9 +4380,27 @@ def _run_proposal_stage_locked(
         policy["maximum_total_candidate_rounds_explicit"]
         and len(rejected_total) >= policy["maximum_total_candidate_rounds"]
     ):
-        raise ValueError("total candidate round limit is exhausted")
+        target, state_updates = _advance_after_candidate_rejection(
+            store, sorted(rejected_total)[-1]
+        )
+        state_updates["candidate_sha256"] = None
+        store.transition(target, state_updates=state_updates)
+        return {
+            "candidate_rejected": True,
+            "rejection_reason": "total_candidate_round_limit_exhausted",
+            "state": store.state(),
+        }
     if len(rejected_rounds) >= policy["max_candidate_rounds_per_cluster"]:
-        raise ValueError("candidate round limit is exhausted for the active cluster")
+        target, state_updates = _advance_after_candidate_rejection(
+            store, rejected_rounds[-1]
+        )
+        state_updates["candidate_sha256"] = None
+        store.transition(target, state_updates=state_updates)
+        return {
+            "candidate_rejected": True,
+            "rejection_reason": "candidate_round_limit_exhausted",
+            "state": store.state(),
+        }
     artifact_index = _agent_artifact_index(store)
     refinement_context = _rejected_gate_refinement_context(
         store,

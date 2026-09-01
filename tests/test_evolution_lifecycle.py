@@ -916,6 +916,46 @@ def test_full_post_rollout_lifecycle_is_append_only_and_completes(
     assert status["state"]["current_bundle_sha256"] == candidate
 
 
+def test_command_feature_catalog_only_exposes_suffix_stable_features(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "stable-command-features"
+    store = CampaignStore(root)
+    store.initialize(_manifest())
+    states = root / "artifacts" / "episode-1" / "states.jsonl"
+    states.parent.mkdir(parents=True)
+    states.write_text(
+        '{"state":{"command.available":false,"privileged.reset_only":1}}\n'
+        '{"state":{"command.available":true,"stable":1,"sparse":1}}\n'
+        '{"state":{"command.available":true,"stable":2}}\n'
+        '{"state":{"command.available":true,"stable":3,"late_stable":1}}\n'
+        '{"state":{"command.available":true,"stable":4,"late_stable":2}}\n',
+        encoding="utf-8",
+    )
+    store.record_episode(
+        EpisodeRecord(
+            episode_id="episode-1",
+            logical_id="g0000-rollout-000",
+            generation=0,
+            seed=7,
+            policy_rng=70,
+            bundle_sha256=None,
+            status="valid",
+            success=False,
+            started_at="2026-01-01T00:00:00+00:00",
+            finished_at="2026-01-01T00:00:01+00:00",
+            elapsed_s=1.0,
+            artifact_index={"states": str(states)},
+        )
+    )
+
+    assert _observed_critic_features(store, require_command_rows=True) == (
+        "command.available",
+        "late_stable",
+        "stable",
+    )
+
+
 def test_five_failed_candidates_switch_to_secondary_then_stop(tmp_path: Path) -> None:
     root = tmp_path / "bounded"
     store = CampaignStore(root)

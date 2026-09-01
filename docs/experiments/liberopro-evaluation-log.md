@@ -688,3 +688,51 @@ seed 21；合成 bundle 固定一条 `episode.step_index >= 12` Critic rule，�
 multiview 303432 bytes。它们位于本次 a3 的 `episode/videos/` 下，按 classifier
 标记为非 compact 私有诊断 artifact，因此只保存在本机，不读取、不提交。原始轨迹、
 privileged state、Role1 消息和 worker log 同样没有进入仓库或 LoopX board。
+
+## 2026-09-01 — Goal-T task2 正式 Harness 演化链
+
+目标为 `put the wine bottle in the bowl`，使用冻结 revision
+`d0463d0c249164a5490a4c5cf36bf43a32abc153`、50 个 development seeds 与隔离的
+held-out seeds 1–20，按 `Pure VLA → Cluster → Diagnose → Recovery Proposal →
+Same-seed → Regression → Held-out → Promote/Reject` 执行。原始视频与轨迹仅保存在
+campaign 本地目录；本日志只记录公开安全的聚合状态。
+
+### a0：并发配置导致的 runner-invalid
+
+- run id：`paper-v1-goal-t-t02-dev50-d0463d0-a0`。
+- 结果：3 条有效 episode、94 次 infrastructure-invalid attempt，47 个 logical seed
+  耗尽每 seed 两次基础设施重试预算，runner 以
+  `rollout_blocked_on_infrastructure`（exit 4）终止；这些失败不计作任务失败。
+- 根因：同一 `local0` runtime 上错误地追加了 `--concurrency 3` worker，与原单 worker
+  争用单环境 rank，造成快速基础设施失败。
+- 处置：保留原 `state/queue`、视频和日志，不删除、不覆盖；LoopX board 已更新为
+  `runner_invalid`，classification 为
+  `worker_concurrency_infrastructure_exhaustion`，并释放 a0 并发租约。
+
+### a1：单 worker 干净重跑
+
+- run id：`paper-v1-goal-t-t02-dev50-d0463d0-a1`。
+- 使用同一 immutable manifest 与同一批 50 development seeds，写入新的
+  `state-a1/queue-a1`；source revision fence 为 clean/pass。
+- 运行约束：只允许一个 `local0` worker，worker `--concurrency 1`；LoopX 总 active
+  case 上限和目标均为 1。
+- 启动状态：Ray runtime 健康，provider broker 以独立长驻会话恢复；队列已成功进入
+  `49 pending / 1 running`。后续以首条 `valid` episode 和持续无 infra-invalid 为
+  运行健康判据，再推进 Cluster 及后续 gate。
+
+### a1 rollout、诊断与 Harness 修复
+
+- Pure VLA rollout 最终为 `50 completed / 0 failed`；supervisor 随后完成 Cluster 和
+  Diagnose，进入 `propose`，证明单 worker 重跑消除了 a0 的基础设施污染。
+- Stage2 连续生成 8 个候选，但 seed-blind compact reducer 显示 8/8 均为
+  `trajectory_feature_contract_rejection`，不是 API 或模型请求失败。候选字段在部分
+  action state 中出现后又消失，无法满足 shadow replay 的 suffix-stable 可评估约束；
+  reducer 未输出 seed、轨迹、prompt 或候选正文。
+- 根因是 Stage2 feature catalog 对所有 action rows 做字段并集，而 shadow gate 要求
+  每条轨迹中字段自首次出现后持续存在，两者契约不一致。修复后 catalog 只暴露每条
+  轨迹内 suffix-stable 且跨轨迹共有的字段。
+- 同时修复候选轮次耗尽后的状态机缺口：此前 `propose` 直接抛出 `ValueError`；现在
+  按既有 bounded-search 语义进入 `complete`，记录
+  `no_candidate_passed_primary_or_secondary`，形成正式 Reject 而不是 runner crash。
+- 定向验证：39 项 lifecycle/refinement/CLI 测试通过；另 102 项 evolution、campaign、
+  LIBERO runtime 与论文矩阵测试通过。
