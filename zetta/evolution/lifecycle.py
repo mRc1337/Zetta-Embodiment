@@ -301,6 +301,69 @@ def _existing_artifact_path(
     return None
 
 
+def _existing_frozen_artifact_path(
+    store: CampaignStore,
+    row: dict[str, Any],
+    artifact_index: dict[str, Any],
+    value: Any,
+    *,
+    resolver: dict[str, Any] | None = None,
+) -> Path | None:
+    """Resolve one accepted artifact, including a migrated immutable locator.
+
+    Cross-revision resumes intentionally preserve accepted EpisodeRecord bytes,
+    so a top-level convenience locator such as ``artifact_index.states`` can
+    still name the prior campaign root.  The nested trajectory provenance binds
+    that locator to a frozen digest, while the private manifest-scoped resolver
+    supplies its current in-campaign path.  Re-hash the selected file here
+    because unlike Agent artifact delivery this path is consumed directly by
+    the Harness.
+    """
+
+    direct = _existing_artifact_path(store, row, value)
+    if direct is not None:
+        return direct
+    if not isinstance(value, str):
+        return None
+
+    matching_digests: set[str] = set()
+    for group, paths_key in (
+        ("trajectory_index", "artifact_paths"),
+        ("visual_evidence", "artifacts"),
+    ):
+        container = artifact_index.get(group)
+        if not isinstance(container, dict):
+            continue
+        paths = container.get(paths_key)
+        digests = container.get("artifact_sha256")
+        if not isinstance(paths, dict) or not isinstance(digests, dict):
+            continue
+        if set(paths) != set(digests):
+            raise ValueError("episode artifact path/hash keys do not match")
+        for name, locator in paths.items():
+            if locator != value:
+                continue
+            digest = digests[name]
+            if not isinstance(digest, str) or not _SHA256_PATTERN.fullmatch(digest):
+                raise ValueError("episode artifact index contains a malformed digest")
+            matching_digests.add(digest)
+    if not matching_digests:
+        return None
+    if len(matching_digests) != 1:
+        raise ValueError("accepted artifact locator has conflicting frozen hashes")
+
+    digest = next(iter(matching_digests))
+    if resolver is None:
+        resolver = _load_resolver(store)
+    candidates = _resolver_file_paths_for_digest(store, resolver, digest)
+    for candidate in candidates:
+        if file_sha256(candidate) == digest:
+            return candidate
+    if candidates:
+        raise ValueError("migrated artifact bytes differ from accepted provenance")
+    return None
+
+
 def _lexical_artifact_paths(
     store: CampaignStore, row: dict[str, Any], value: Any
 ) -> tuple[Path, ...]:
@@ -1457,6 +1520,7 @@ def _observed_critic_features(
 
     features: set[str] = set()
     stable_features: set[str] | None = None
+    resolver = _load_resolver(store)
     rows = list(store.episodes.records())
     rows.extend(row for _, row, _ in _completed_gate_episode_rows(store))
     for row in rows:
@@ -1465,7 +1529,13 @@ def _observed_critic_features(
         index = row.get("artifact_index")
         if not isinstance(index, dict):
             continue
-        path = _existing_artifact_path(store, row, index.get("states"))
+        path = _existing_frozen_artifact_path(
+            store,
+            row,
+            index,
+            index.get("states"),
+            resolver=resolver,
+        )
         if path is None:
             continue
         rows_payload: list[dict[str, Any]] = []

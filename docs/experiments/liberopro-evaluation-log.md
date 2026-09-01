@@ -1034,3 +1034,31 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
   不变且证据仍可解析。扩大 evolution/gate/runtime 定向集合为 `267 passed`；Ruff
   lint 与 `git diff --check` 通过。下一次必须在包含此修复的新 clean revision 上迁移
   为独立 run，再继续第 8 轮 Proposal。
+
+### a10：Stage2 空 feature catalog 与 resolver 消费修复
+
+- a10 在 clean revision `5370e8a7a31fe7cbea761951105e6944e3b38557` 上完成新
+  source fence，迁移后保持 228 条 accepted episode ledger 原字节。私有
+  manifest-scoped resolver 共校验 4560 个冻结 artifact 引用，其中 4287 个已有
+  current source，273 个新增重绑；全部通过 accepted SHA-256 校验。
+- Proposal 输入索引已可生成，但 Stage2 的 `_observed_critic_features()` 仍只用
+  旧的直接路径解析，未消费 resolver。因此 228 条 episode 的 states 都被误判为
+  不可用，传入 Stage2 的 `available_critic_features=[]`。首次生成和唯一一次
+  validator 纠错均因引用 catalog 外特征而 fail closed；未运行新 episode，未使用
+  held-out seeds 1–20。
+- a10 已在 LoopX board 终结为 `runner_invalid`，classification 为
+  `stage2_observed_feature_contract_runner_error`，`score_countable=false`。这是
+  Harness 证据解析错误，不是 Recovery mechanism 的 Reject。
+- 修复让受 Harness 信任的 frozen-artifact 读路径同样通过 manifest-scoped
+  resolver 定位当前 campaign 内文件，并在每次读取前重算 SHA-256；仍不
+  改写 EpisodeRecord，不允许越界路径或未冻结字节。独立 rebind 工具只输出
+  path-free 聚合收据。
+- 对真实 a10 的 228 条 episode 重算安全 feature catalog，得到 34 个非空
+  特征，catalog SHA-256 为
+  `d4db474c8c9ed7578e9e0f0e277f1ddbe3591e0d4c0cca60fdf914e5463fc8f9`；
+  其中包括 `command.available`、`command.gripper`、
+  `command.translation.*`、`command.realization.*` 和 `robot.eef.*`。过程只输出
+  feature 名、数量与摘要，不输出状态值、episode ID、本地路径或轨迹。
+- 扩大 evolution、candidate gate 和 LIBERO runtime 相关回归集合为
+  `307 passed`。下一次在包含此修复的新 clean revision 上创建 a11，继续第 8 轮
+  Proposal；冻结的 Pure VLA、Cluster、Diagnose、视频与 latency 仍直接复用。
