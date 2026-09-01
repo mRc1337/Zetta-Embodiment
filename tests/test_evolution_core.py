@@ -415,6 +415,37 @@ def test_temporal_critic_activation_guard_resets_precondition_history() -> None:
     assert proposal[0]["activation_conditions"][0]["observed_value"] is True
 
 
+def test_temporal_critic_does_not_resolve_primary_feature_before_guard() -> None:
+    rule = CriticRule(
+        rule_id="guarded-realization-stall",
+        title="guarded realization stall",
+        feature="command.realization.stalled",
+        operator="eq",
+        threshold=True,
+        dwell_steps=1,
+        cooldown_steps=0,
+        proposal="recover",
+        evidence_ids=("segment-guarded-feature",),
+        activation_conditions=(
+            CriticPredicate(
+                feature="command.realization.direction_available",
+                operator="eq",
+                threshold=True,
+            ),
+        ),
+    )
+    critic = TemporalCritic((rule,))
+
+    assert critic.evaluate(
+        {"command.realization.direction_available": False}, step_index=1
+    ) == []
+
+    with pytest.raises(KeyError, match="command.realization.stalled"):
+        critic.evaluate(
+            {"command.realization.direction_available": True}, step_index=2
+        )
+
+
 def test_two_stage_heldout_requires_exact_paired_evidence() -> None:
     seeds = tuple(range(50))
     rng = {seed: seed + 1000 for seed in seeds}

@@ -476,6 +476,17 @@ def test_feature_extractor_merges_sidecar_without_mutating_actor_observation() -
     assert set(observation) == {"states"}
     assert "privileged.task.manipulated_object.grasped" in LIBERO_CRITIC_FEATURES
 
+    prefix_features = extract_libero_critic_features(
+        observation,
+        step_index=0,
+        reward=0.0,
+        terminated=False,
+        truncated=False,
+        action=[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0],
+    )
+    assert prefix_features["command.realization.direction_available"] is False
+    assert "command.realization.stalled" not in prefix_features
+
     with pytest.raises(ValueError, match="invalid LIBERO privileged feature"):
         extract_libero_critic_features(
             observation,

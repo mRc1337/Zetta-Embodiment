@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Zetta Contributors
 """Critic-Recovery integration tests for ``rlinf_env.LiberoEnvCore`` (the
 evaluation and interruption semantics of ``ResetSpec.options
 ["critic_rules"]`` → ``_chunk_step_one``).
@@ -152,12 +153,9 @@ def test_hit_rule_populates_proposals_and_interrupts_by_default(
     The stub's ``states`` is a constant vector (every step equals the step
     index), so EEF displacement is identically 0 before the first step that
     "has a previous step to compare against" (the 2nd step within the
-    chunk)—so ``_STAGNANT_RULE`` should in principle hit at step 1 (the first
-    step has no ``previous_eef``, so ``robot.eef.delta_available`` is false,
-    but the rule doesn't set it as an activation condition; directly
-    evaluating the main operator against a missing ``motion_m`` would raise
-    ``KeyError``; hence a stable field not dependent on ``previous_eef`` is
-    used instead).
+    chunk)—so ``_STAGNANT_RULE`` should in principle hit at step 1. A stable
+    field not dependent on ``previous_eef`` is used here because this test is
+    about interruption rather than guarded realization features.
 
     Args:
         stub_rlinf: rlinf stub fixture.
@@ -194,6 +192,45 @@ def test_hit_rule_populates_proposals_and_interrupts_by_default(
     assert proposals[0]["step_index"] == 2
     assert proposals[0]["environment_write"] is False
     assert outcome.info["critic_rule_count"] == 1
+    core.close()
+
+
+def test_realization_feature_is_guarded_until_previous_eef_exists(
+    stub_rlinf: type[_StubLiberoEnv],
+) -> None:
+    core = _build_core()
+    core.reset(
+        [0],
+        ResetSpec(
+            task_id=0,
+            seed=0,
+            options={
+                "critic_rules": [
+                    {
+                        "rule_id": "realization-stalled",
+                        "feature": "command.realization.stalled",
+                        "operator": "eq",
+                        "threshold": True,
+                        "dwell_steps": 1,
+                        "cooldown_steps": 0,
+                        "proposal": "recover",
+                        "activation_conditions": [
+                            {
+                                "feature": "command.realization.direction_available",
+                                "operator": "eq",
+                                "threshold": True,
+                            }
+                        ],
+                    }
+                ]
+            },
+        ),
+    )
+
+    outcome = core.chunk_step([0], [_action_block(1)])[0]
+
+    assert outcome.executed_horizon == 1
+    assert outcome.info["critic_proposals"] == []
     core.close()
 
 

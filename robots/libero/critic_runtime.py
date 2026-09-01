@@ -59,6 +59,7 @@ def extract_libero_critic_features(
         "robot.gripper.opening": float(abs(states[6]) + abs(states[7])),
         "robot.eef.delta_available": previous_eef is not None,
         "command.available": action is not None,
+        "command.realization.direction_available": False,
     }
     for index, value in enumerate(states):
         if np.isfinite(value):

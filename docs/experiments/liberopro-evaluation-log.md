@@ -971,3 +971,32 @@ Stage 提示原本已经明确要求 3 个失败 overview，故此次不是 API�
   `14/27` Same-seed 门槛和 zero-FP success-control 门禁，将候选轮次预算提高到 8；
   复用 a4 的冻结 baseline、cluster、diagnosis、视频与 latency，并携带 a6 两个已拒绝
   mechanism 的摘要/digest，避免重复生成。
+
+### a7：扩大候选预算及原框架 Critic 缺陷
+
+- a7 在 clean revision `8ec06f5010ed5e38ff6c9a327cc749d0790a7566` 上通过
+  source fence，继续复用 a4 的 50 条冻结 Pure VLA、Cluster、Diagnose、视频与延迟，
+  并继承 a6 两轮已拒绝候选历史；held-out seeds 1–20 仍保持隔离且未使用。
+- 第 5 轮候选的 success-control shadow 假阳性为 `7/15`（46.67%），按冻结的
+  zero-FP 门禁拒绝。第 6 轮候选通过 `0/15` shadow 门禁，但 Same-seed 在 19 条有效
+  candidate episode 后仅成功 `5/19`；余下 8 条即使全部成功也最多为 `13/27`，低于
+  `14/27` 门槛，因此确定性早停并拒绝。
+- 第 7 轮候选 `08b088b8bd78abd5d25192ec5efb4e9314386d90432a5d122b1cc81dd8563335`
+  通过 zero-FP shadow 门禁并进入 Same-seed，但连续 candidate attempt 均在首个物理
+  step 触发相同 `KeyError`，没有产生可计分 candidate episode；这些 attempt 只能归为
+  `infra_invalid`，不能计作任务失败，也不能消耗 Same-seed 性能预算。
+- 根因位于项目原框架：canonical `TemporalCritic` 与独立 LIBERO runtime Critic 都在
+  检查 activation conditions 之前解析主特征。首步没有 previous EEF，因而
+  `command.realization.stalled` 尚不存在；尽管
+  `command.realization.direction_available=false` 本应屏蔽该规则，主特征的提前读取仍
+  抛出异常。该缺陷在 a7 revision 的 `origin/main` 中已存在，不是 LIBERO-PRO 注册、
+  候选模型输出或 Recovery actor 引入。
+- 修复将主特征解析移动到 activation guard 之后，并让 feature extractor 在没有
+  previous EEF 时显式输出 `command.realization.direction_available=false`。新增
+  canonical、runtime 与 LIBERO feature extractor 回归测试；定向集合为
+  `64 passed`（3 条既有 robosuite deprecation warning），Ruff 与
+  `git diff --check` 通过。扩大 runtime 集合另有 17 个环境依赖失败：16 个因当前
+  venv 未安装 `prometheus_client`，1 个因未安装 RoboCasa；均不涉及此次改动路径。
+- a7 已停止，避免对同一确定性基础设施错误继续重试；其 LoopX running 行将在新
+  revision admission 前以 runner-invalid 终结。第 7 轮候选将迁移到 a8，修复前的
+  infra-invalid attempt 不计分，并从同一冻结 Same-seed 配对集合继续。
