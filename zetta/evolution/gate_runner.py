@@ -1519,6 +1519,15 @@ class PairedGateRunner:
                         "same-seed gate rejected early as mathematically impossible:"
                     )
                 ):
+                    # The append-only decision and mutable phase transition are
+                    # intentionally separate writes.  If a process stops after
+                    # committing the early decision, replay must finish the
+                    # transition just like the all-arms-valid path below.
+                    if CampaignPhase(state["phase"]) == self._expected_phase():
+                        record_gate_and_advance(
+                            campaign_root=self.store.root,
+                            decision=recorded,
+                        )
                     return recorded
                 raise ValueError("gate decision exists before all paired arms are valid")
             early = self._early_impossible_same_seed_decision(plan, expected, valid)

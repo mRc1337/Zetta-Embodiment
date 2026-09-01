@@ -813,6 +813,71 @@ def test_same_seed_gate_rejects_early_when_success_upper_bound_is_impossible(
     assert len(store.gates.records()) == 1
 
 
+def test_resume_after_early_gate_ledger_commit_finishes_state_transition(
+    tmp_path: Path,
+) -> None:
+    seeds = tuple(range(5))
+    root, queue_root, store, _ = _setup(
+        tmp_path,
+        seeds=seeds,
+        reuse_parent_evidence=True,
+    )
+    host = "host-a"
+    runner = CandidateGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=(host,),
+    )
+    runner.run_once()
+
+    queue = SharedHostQueue(queue_root)
+    for _ in range(3):
+        claimed = queue.claim(host, worker_id="test-host-a")
+        assert claimed is not None
+        path, job = claimed
+        token = queue.claim_token(path)
+        record = _gate_episode(job, success=False)
+        queue.finish(
+            path,
+            success=True,
+            result={
+                "job_id": job.job_id,
+                "logical_id": job.logical_id,
+                "attempt_index": job.attempt_index,
+                "return_code": 0,
+                "watchdog_reason": None,
+                "elapsed_s": record.elapsed_s,
+                "result": record.as_dict(),
+                "success": True,
+                "job": job.as_dict(),
+            },
+            claim_token=token,
+        )
+
+    assert runner.ingest()["accepted"] == 3
+    plan = runner.prepare()
+    decision = runner._early_impossible_same_seed_decision(
+        plan,
+        runner._expected_arms(plan),
+        runner._valid_rows(),
+    )
+    assert decision is not None
+    assert decision.passed is False
+    # Simulate a crash after the append-only early decision commit but before
+    # record_gate_and_advance can update the mutable campaign state.
+    store.record_gate(decision)
+    assert store.state()["phase"] == CampaignPhase.SAME_SEED_GATE
+
+    resumed = CandidateGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=(host,),
+    ).run_once()
+    assert resumed["decision"] == decision.as_dict()
+    assert store.state()["phase"] == CampaignPhase.PROPOSE
+    assert len(store.gates.records()) == 1
+
+
 def test_identical_action_pairs_record_rejection_and_resume_idempotently(
     tmp_path: Path,
 ) -> None:
