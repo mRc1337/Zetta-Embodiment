@@ -1234,3 +1234,52 @@ episode record、轨迹、视频内容、worker/provider 日志或密钥。
   直接读取或输出候选 trajectory、视频内容、provider transcript 或 worker log。a15 必须在
   含本修复的新 clean revision 上 source-fence，并继续复用冻结 baseline、Cluster、Diagnose、
   视频和 latency；仅执行新的 Proposal 及必要的 Same-seed/Regression/held-out 链。
+
+### a15：真实 causal-feedback 扩展搜索终态
+
+- a15 使用 clean revision `b52d9716752b7e453ba25272e3e7f1d4497ce170`，source revision
+  fence 返回 admitted。迁移脚本以硬链接复用 a14 的冻结 Pure VLA、Cluster、Diagnose、
+  候选历史、视频和 latency；accepted episode ledger 保持原字节，迁移后从
+  `phase=propose`、`candidate_round=15` 继续。held-out seeds 1–20 保持隔离。
+- a15 新执行候选轮次 16–30：13 个 Proposal 在 strict zero-FP shadow preflight 被拒绝，
+  2 个通过 shadow admission 并运行真实 Same-seed。累计终态为 30 个候选、21 个 shadow
+  Reject、9 个 Same-seed Reject；没有降低 false-positive、成功率、safety 或因果归因门槛。
+- 第一名新 live candidate 完成 `35/35` 个有效 candidate arm，成功 `23/35`，safety event
+  为 0；虽然超过 `18/35` 数值门槛，但 rescued-seed 因果绑定仍未完全满足，因此 Reject。
+  第二名新 live candidate 在 `34/35` 个有效 arm 中成功 `16/34`；即使剩余 1 条成功，上界也
+  只有 `17/35`，因此确定性早停 Reject。另一个已经启动的物理 attempt 留下 summary/video，
+  但未被 gate 接纳，故不计入 valid 或 infra-invalid。
+- a15 新接受 `69` 条有效 candidate episode、`0` 条 failed queue item；连同 a14，候选有效
+  episode 累计 `294`，既有 infra-invalid attempt 仍为 `3`。最终 state 为
+  `phase=complete`、`candidate_round=30`、`same_seed_gate_rounds=9`、
+  `optimization_outcome=maximum_total_candidate_rounds_exhausted`。
+- 因没有候选通过 Same-seed，Regression、held-out seeds 1–20 和 Promote 均未执行；a15
+  是符合冻结门禁的 terminal Reject，但仍未满足目标所需的完整后半链。
+
+#### a15 新增延迟与视频
+
+读取前使用 LoopX artifact classifier，通过显式
+`--allow-public-filename summary.json` 将 70 份新增 latency summary 分类为
+`70 allowed / 0 blocked`。这里只聚合 compact summary，不读取轨迹、视频内容、
+provider transcript 或 worker log。
+
+| 组件 | count | weighted mean (ms) | max (ms) | 含该组件的 summary 数 |
+| --- | ---: | ---: | ---: | ---: |
+| model inference | 2534 | 173.668 | 895.410 | 70 |
+| policy request e2e | 2534 | 211.672 | 941.189 | 70 |
+| chunk e2e | 2534 | 500.000 | 1200.762 | 70 |
+| Critic evaluation | 5726 | 22.940 | 69.355 | 70 |
+| Role1 LLM request | 61 | 16785.037 | 39415.684 | 42 |
+| Recovery execution | 43 | 4642.554 | 9228.178 | 40 |
+| episode e2e | 70 | 41894.987 | 80285.060 | 70 |
+
+- 70 份新增 summary 共记录 `26830` 个 latency events。61 次 Role1 请求和 43 次
+  Recovery execution 证明新候选实际进入 Critic-Recovery 路径。
+- a15 新增 `210/210` 个非空 `videos/*.mp4`；a14+a15 候选视频累计 `894` 个，连同冻结
+  baseline 的 150 个，共 `1044` 个。LoopX a14 行中先前错误的 `saved_video_count=912`
+  已修正为候选区实际的 `684`。
+- LoopX board 已将 a15 从 `running` 更新为 `completed`，classification 为
+  `candidate_round_budget_exhausted_causal_feedback_terminal_reject`，
+  `official_result_present=true`、`score_countable=false`，并释放并发槽至 `0/1`。
+- 终态后已优雅停止 `18730` Pi0.5 runtime；GPU compute process 列表为空。`4110`
+  provider broker 保持运行且不占 GPU。
