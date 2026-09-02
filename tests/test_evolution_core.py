@@ -715,6 +715,78 @@ def test_same_seed_gate_uses_frozen_half_success_threshold_and_requires_gain() -
     ).passed
 
 
+def test_same_seed_gate_accepts_mixed_causal_and_natural_candidate_wins() -> None:
+    seeds = (1, 2, 3, 4)
+    parent = [
+        _episode(
+            logical_id=f"parent-{seed}",
+            seed=seed,
+            policy_rng=100 + seed,
+            attempt=0,
+            success=False,
+            bundle_sha256="d" * 64,
+        )
+        for seed in seeds
+    ]
+    candidate = [
+        _episode(
+            logical_id=f"candidate-{seed}",
+            seed=seed,
+            policy_rng=100 + seed,
+            attempt=0,
+            success=seed in {1, 2},
+            bundle_sha256="c" * 64,
+        )
+        for seed in seeds
+    ]
+    natural_win = candidate[1]
+    candidate[1] = replace(
+        natural_win,
+        artifact_index={
+            key: value
+            for key, value in natural_win.artifact_index.items()
+            if key != "candidate_intervention"
+        },
+    )
+
+    decision = evaluate_paired_gate(
+        kind="same_seed",
+        candidate_sha256="c" * 64,
+        parent_sha256="d" * 64,
+        candidate_records=candidate,
+        parent_records=parent,
+        expected_seeds=seeds,
+        same_seed_pass_rate=0.5,
+    )
+
+    assert decision.passed
+    assert "causally attributed rescues 1/2" in decision.rationale
+
+    no_causal_win = [
+        replace(
+            row,
+            artifact_index={
+                key: value
+                for key, value in row.artifact_index.items()
+                if key != "candidate_intervention"
+            },
+        )
+        if row.success
+        else row
+        for row in candidate
+    ]
+    no_causal_decision = evaluate_paired_gate(
+        kind="same_seed",
+        candidate_sha256="c" * 64,
+        parent_sha256="d" * 64,
+        candidate_records=no_causal_win,
+        parent_records=parent,
+        expected_seeds=seeds,
+        same_seed_pass_rate=0.5,
+    )
+    assert not no_causal_decision.passed
+    assert "no causally attributed rescue" in no_causal_decision.rationale
+
 def test_queue_counts_do_not_double_count_envelopes_and_recovers_stale(
     tmp_path: Path,
 ) -> None:

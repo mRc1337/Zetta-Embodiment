@@ -208,6 +208,22 @@ def evaluate_paired_gate(
                 and parent_successes == 0
                 and no_safety_regression
             )
+            rationale = (
+                "candidate never changed the failed parent action trajectory"
+                if not mechanism_diverged
+                else (
+                    f"candidate met the frozen same-seed threshold: "
+                    f"{candidate_successes}/{len(expected_seeds)} >= "
+                    f"{required_successes}/{len(expected_seeds)}"
+                )
+                if passed
+                else (
+                    "candidate did not meet the frozen same-seed improvement "
+                    f"threshold ({candidate_successes}/{len(expected_seeds)}, "
+                    f"required {required_successes}), rescued trajectories did "
+                    "not diverge, or safety regressed"
+                )
+            )
         else:
             required_successes = math.ceil(
                 len(expected_seeds) * same_seed_pass_rate
@@ -217,33 +233,37 @@ def evaluate_paired_gate(
                 for seed in expected_seeds
                 if candidate[seed].success and not parent[seed].success
             )
-            rescued_diverged = bool(rescued_seeds) and all(
-                divergence_by_seed[seed] and intervention_by_seed[seed]
+            causally_rescued_seeds = tuple(
+                seed
                 for seed in rescued_seeds
+                if divergence_by_seed[seed] and intervention_by_seed[seed]
             )
+            causal_rescue_observed = bool(causally_rescued_seeds)
             passed = (
                 candidate_successes >= required_successes
                 and candidate_successes > parent_successes
-                and rescued_diverged
+                and causal_rescue_observed
                 and no_safety_regression
             )
+            rationale = (
+                "candidate never changed the failed parent action trajectory"
+                if not mechanism_diverged
+                else (
+                    f"candidate met the frozen same-seed threshold: "
+                    f"{candidate_successes}/{len(expected_seeds)} >= "
+                    f"{required_successes}/{len(expected_seeds)}; "
+                    f"causally attributed rescues "
+                    f"{len(causally_rescued_seeds)}/{len(rescued_seeds)}"
+                )
+                if passed
+                else (
+                    "candidate did not meet the frozen same-seed improvement "
+                    f"threshold ({candidate_successes}/{len(expected_seeds)}, "
+                    f"required {required_successes}), had no causally attributed "
+                    "rescue, or safety regressed"
+                )
+            )
         p_value = None
-        rationale = (
-            "candidate never changed the failed parent action trajectory"
-            if not mechanism_diverged
-            else (
-                f"candidate met the frozen same-seed threshold: "
-                f"{candidate_successes}/{len(expected_seeds)} >= "
-                f"{required_successes}/{len(expected_seeds)}"
-            )
-            if passed
-            else (
-                f"candidate did not meet the frozen same-seed improvement threshold "
-                f"({candidate_successes}/{len(expected_seeds)}, required "
-                f"{required_successes}), rescued trajectories did not diverge, "
-                "or safety regressed"
-            )
-        )
     elif kind == "regression":
         conclusive = True
         passed = candidate_successes >= parent_successes and no_safety_regression
@@ -309,6 +329,15 @@ def evaluate_paired_gate(
             "min_success_rate": heldout_min_success_rate,
             "require_significance": heldout_require_significance,
         }
+    if kind == "same_seed" and same_seed_pass_rate != 1.0:
+        # v2 accepts a mixture of causally attributed rescues and natural wins,
+        # while still requiring at least one parent-failure rescue owned by an
+        # actual Critic/Recovery intervention. Version the decision identity so
+        # a re-evaluation cannot collide with a historical all-rescues-must-be-
+        # attributed decision over the same immutable paired arms.
+        decision_payload["causal_attribution_policy"] = (
+            "at_least_one_attributed_rescue_v2"
+        )
     return GateDecision(
         decision_id=f"gate-{canonical_sha256(decision_payload)[:20]}",
         candidate_sha256=candidate_sha256,

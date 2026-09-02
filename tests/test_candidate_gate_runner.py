@@ -679,6 +679,7 @@ def test_resume_after_gate_ledger_commit_advances_without_replaying(
         candidate_records=candidate_records,
         parent_records=parent_records,
         expected_seeds=(11,),
+        same_seed_pass_rate=float(plan["same_seed_pass_rate"]),
     )
     # Simulate a process crash after the append-only gate commit but before state advance.
     store.record_gate(decision)
