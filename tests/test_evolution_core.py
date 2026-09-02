@@ -787,6 +787,54 @@ def test_same_seed_gate_accepts_mixed_causal_and_natural_candidate_wins() -> Non
     assert not no_causal_decision.passed
     assert "no causally attributed rescue" in no_causal_decision.rationale
 
+
+def test_regression_gate_requires_every_historical_seed_to_succeed() -> None:
+    seeds = (1, 2)
+    parent = [
+        _episode(
+            logical_id=f"parent-{seed}",
+            seed=seed,
+            policy_rng=100 + seed,
+            attempt=0,
+            success=False,
+            bundle_sha256="d" * 64,
+        )
+        for seed in seeds
+    ]
+    candidate = [
+        _episode(
+            logical_id=f"candidate-{seed}",
+            seed=seed,
+            policy_rng=100 + seed,
+            attempt=0,
+            success=seed == 1,
+            bundle_sha256="c" * 64,
+        )
+        for seed in seeds
+    ]
+
+    partial = evaluate_paired_gate(
+        kind="regression",
+        candidate_sha256="c" * 64,
+        parent_sha256="d" * 64,
+        candidate_records=candidate,
+        parent_records=parent,
+        expected_seeds=seeds,
+    )
+    assert not partial.passed
+    assert "1/2" in partial.rationale
+
+    complete = evaluate_paired_gate(
+        kind="regression",
+        candidate_sha256="c" * 64,
+        parent_sha256="d" * 64,
+        candidate_records=[replace(row, success=True) for row in candidate],
+        parent_records=parent,
+        expected_seeds=seeds,
+    )
+    assert complete.passed
+
+
 def test_queue_counts_do_not_double_count_envelopes_and_recovers_stale(
     tmp_path: Path,
 ) -> None:

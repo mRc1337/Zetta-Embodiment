@@ -266,12 +266,18 @@ def evaluate_paired_gate(
         p_value = None
     elif kind == "regression":
         conclusive = True
-        passed = candidate_successes >= parent_successes and no_safety_regression
+        passed = (
+            candidate_successes == len(expected_seeds) and no_safety_regression
+        )
         p_value = None
         rationale = (
-            "candidate did not reduce success or safety"
+            "candidate resolved every historical regression seed without a safety "
+            "regression"
             if passed
-            else ("candidate regressed success or safety")
+            else (
+                "candidate did not resolve every historical regression seed "
+                f"({candidate_successes}/{len(expected_seeds)}) or safety regressed"
+            )
         )
     else:
         if alpha is None or not 0 < alpha < 1:
@@ -337,6 +343,10 @@ def evaluate_paired_gate(
         # attributed decision over the same immutable paired arms.
         decision_payload["causal_attribution_policy"] = (
             "at_least_one_attributed_rescue_v2"
+        )
+    if kind == "regression":
+        decision_payload["regression_policy"] = (
+            "all_historical_rollouts_must_succeed_v2"
         )
     return GateDecision(
         decision_id=f"gate-{canonical_sha256(decision_payload)[:20]}",
