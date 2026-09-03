@@ -406,6 +406,73 @@ def test_stage_persists_harness_transformed_output_before_validation(
     }
 
 
+def test_proposal_accepts_json_roundtrip_of_bound_critic_activation_conditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    diagnosis = CausalDiagnosis(**_diagnosis_payload())
+    provider_output = _candidate_payload()
+    provider_output["candidate_id"] = "candidate-refined"
+    provider_output["mechanism_change"] = "use a longer bounded re-engagement"
+    provider_output["critic_rules"][0]["activation_conditions"] = [
+        {
+            "feature": "privileged.target_contact",
+            "operator": "eq",
+            "threshold": True,
+        }
+    ]
+    provider_output["recovery_rules"][0]["steps"][0]["parameters"] = {
+        "max_actions": 8
+    }
+    required_critic_rules = json.loads(
+        json.dumps(provider_output["critic_rules"])
+    )
+    previous_candidate = json.loads(json.dumps(provider_output))
+    previous_candidate["candidate_id"] = "candidate-rejected"
+    previous_candidate["recovery_rules"][0]["steps"][0]["parameters"] = {
+        "max_actions": 4
+    }
+
+    class FakePlanner:
+        def solve(self, **_kwargs: Any) -> PlannerResult:
+            return PlannerResult(
+                messages=[{"content": json.dumps(provider_output)}],
+                stats={"thread_id": "thread-bound-critic", "thread_resumed": False},
+            )
+
+    monkeypatch.setattr(
+        "zetta.evolution.stages.build_planner",
+        lambda _kind, **_kwargs: FakePlanner(),
+    )
+    candidate = CodexStageAgent(
+        output_root=tmp_path / "proposal",
+        max_validation_repairs=0,
+    ).propose(
+        generation=1,
+        parent_sha256=None,
+        diagnosis=diagnosis,
+        tool_catalog={"tools": [{"name": "robocasa.vla.groot"}]},
+        refinement_context={
+            "mode": "refine_shadow_rejected_candidate",
+            "previous_candidate": previous_candidate,
+            "preflight_rejection": {
+                "preflight_disposition": "rejected_target_detection_miss"
+            },
+            "previous_detector_replay": {},
+            "gate_evidence": [],
+            "causal_isolation_directive": {
+                "preserve_critic_rules_byte_for_byte": required_critic_rules
+            },
+        },
+    )
+
+    assert candidate.critic_rules[0].activation_conditions[0].feature == (
+        "privileged.target_contact"
+    )
+    assert candidate.critic_rules[0].as_dict()["evidence_ids"] == (
+        "artifact-" + "1" * 64,
+    )
+
+
 def test_stage_repairs_validator_failure_on_the_same_provider_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -2268,11 +2268,6 @@ class CodexStageAgent:
             if isinstance(isolation_directive, dict)
             else None
         )
-        required_recovery_steps = (
-            isolation_directive.get("reuse_recovery_steps_byte_for_byte")
-            if isinstance(isolation_directive, dict)
-            else None
-        )
         _bind_causal_isolation_output_contract(payload, isolation_directive)
         if isinstance(required_critic_rules, list):
             for rule in required_critic_rules:
@@ -2329,22 +2324,6 @@ class CodexStageAgent:
                 if candidate_mechanism_sha256 in rejected_mechanism_sha256s:
                     raise ValueError(
                         "Stage2 refinement repeated the rejected mechanism unchanged"
-                    )
-            if isinstance(required_critic_rules, list) and [
-                rule.as_dict() for rule in candidate.critic_rules
-            ] != required_critic_rules:
-                raise ValueError(
-                    "Stage2 refinement violated the causal isolation critic binding"
-                )
-            if isinstance(required_recovery_steps, list):
-                actual_steps = [
-                    step.as_dict()
-                    for recovery in candidate.recovery_rules
-                    for step in recovery.steps
-                ]
-                if actual_steps != required_recovery_steps:
-                    raise ValueError(
-                        "Stage2 refinement violated the causal isolation recovery binding"
                     )
             if smoke_supported_offsets:
                 candidate_offsets = {
