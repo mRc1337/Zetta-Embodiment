@@ -370,6 +370,111 @@ def test_shadow_rejection_keeps_prior_live_causal_history(monkeypatch) -> None:
     ] == recovery_steps
 
 
+def test_regression_rejection_preserves_same_seed_qualified_critic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diagnosis = _diagnosis()
+    candidate = _candidate(candidate_id="regression-reject", diagnosis=diagnosis)
+    bundle_path = tmp_path / "candidates" / candidate.sha256 / "bundle.json"
+    atomic_write_json(bundle_path, candidate.as_dict(), overwrite=False)
+    regression = GateDecision(
+        decision_id="gate-regression-reject",
+        candidate_sha256=candidate.sha256,
+        parent_sha256=candidate.parent_sha256,
+        kind="regression",
+        passed=False,
+        conclusive=True,
+        candidate_successes=1,
+        parent_successes=0,
+        paired_count=2,
+        candidate_wins=1,
+        parent_wins=0,
+        p_value=None,
+        alpha=None,
+        candidate_safety_events=0,
+        parent_safety_events=0,
+        rationale="strict regression failed",
+    ).as_dict()
+    causal_detail = {
+        "candidate_id": candidate.candidate_id,
+        "critic_rules": [rule.as_dict() for rule in candidate.critic_rules],
+        "recovery_rules": [rule.as_dict() for rule in candidate.recovery_rules],
+        "candidate_interventions": 13,
+        "successful_candidate_interventions": 13,
+        "action_diverged_candidate_count": 13,
+        "causally_attributed_success_count": 13,
+        "unattributed_candidate_win_count": 10,
+    }
+
+    class Rows:
+        def records(self) -> list[dict[str, Any]]:
+            return [regression]
+
+    class Store:
+        root = tmp_path
+        gates = Rows()
+
+        def state(self) -> dict[str, Any]:
+            return {"candidate_sha256": candidate.sha256}
+
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._gate_descriptors_for_candidate",
+        lambda *_args, **_kwargs: [
+            {
+                "content_id": "artifact-" + "7" * 64,
+                "type": "candidate_gate_episode",
+                "summary": "prompt-safe regression failure",
+                "hash": "hmac-sha256:" + "8" * 64,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._rejected_same_seed_causal_history",
+        lambda _: (
+            {
+                "rejected_same_seed_candidate_count": 0,
+                "gates_with_zero_successful_candidate_interventions": 0,
+                "total_candidate_interventions": 0,
+                "total_successful_candidate_interventions": 0,
+                "total_action_diverged_candidates": 0,
+                "total_causally_attributed_successes": 0,
+                "total_unattributed_candidate_wins": 0,
+                "gates_with_unattributed_candidate_wins": 0,
+            },
+            [],
+            {},
+        ),
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._same_seed_causal_history_detail",
+        lambda *_args, **_kwargs: causal_detail,
+    )
+
+    context = _rejected_gate_refinement_context(  # type: ignore[arg-type]
+        Store(), artifact_index={"artifacts": []}
+    )
+
+    assert context is not None
+    assert context["paired_gate_result"]["stage"] == "regression"
+    assert context["same_seed_qualification"] == {
+        key: causal_detail[key]
+        for key in (
+            "candidate_interventions",
+            "successful_candidate_interventions",
+            "action_diverged_candidate_count",
+            "causally_attributed_success_count",
+            "unattributed_candidate_win_count",
+        )
+    }
+    directive = context["causal_isolation_directive"]
+    assert directive["mode"] == "preserve_regression_qualified_trigger_refine_recovery"
+    assert directive["preserve_critic_rules_byte_for_byte"] == causal_detail[
+        "critic_rules"
+    ]
+    assert "reuse_recovery_steps_byte_for_byte" not in directive
+
+
 def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:
     critic_rules = [{"rule_id": "critic-proven", "evidence_ids": []}]
     recovery_steps = [

@@ -2274,12 +2274,75 @@ def _paired_causal_attribution_summary(
     }
 
 
+def _same_seed_causal_history_detail(
+    store: CampaignStore,
+    *,
+    candidate_sha256: str,
+) -> dict[str, Any] | None:
+    """Load one candidate's Same-seed evidence without mixing later gates."""
+
+    decisions = [
+        row
+        for row in store.gates.records()
+        if row.get("candidate_sha256") == candidate_sha256
+        and row.get("kind") == "same_seed"
+    ]
+    if not decisions:
+        return None
+    if len(decisions) != 1:
+        raise ValueError("candidate has ambiguous same-seed gate history")
+    gate_root = store.root / "candidates" / candidate_sha256 / "gates/same_seed"
+    plan = read_json(gate_root / "plan.json")
+    if plan.get("candidate_sha256") != candidate_sha256:
+        raise ValueError("same-seed causal history plan binding changed")
+    candidate_ids = {
+        str(pair["logical_ids"]["candidate"]) for pair in plan.get("pairs", ())
+    }
+    parent_ids = {
+        str(pair["logical_ids"]["parent"]) for pair in plan.get("pairs", ())
+    }
+    rows = AppendOnlyLedger(
+        gate_root / "ledgers/valid.jsonl", key="logical_id"
+    ).records()
+    candidate_records = [
+        EpisodeRecord.from_dict(row)
+        for row in rows
+        if row.get("logical_id") in candidate_ids
+    ]
+    parent_records = [
+        EpisodeRecord.from_dict(row)
+        for row in rows
+        if row.get("logical_id") in parent_ids
+    ]
+    if {record.logical_id for record in parent_records} != parent_ids:
+        raise ValueError("same-seed causal history has incomplete parent evidence")
+    attribution = _paired_causal_attribution_summary(
+        candidate_records=candidate_records,
+        parent_records=parent_records,
+    )
+    bundle = read_json(store.root / "candidates" / candidate_sha256 / "bundle.json")
+    if canonical_sha256(bundle) != candidate_sha256:
+        raise ValueError("same-seed causal history candidate digest changed")
+    return {
+        "candidate_id": bundle.get("candidate_id"),
+        "critic_rules": bundle.get("critic_rules", ()),
+        "recovery_rules": bundle.get("recovery_rules", ()),
+        "candidate_interventions": sum(
+            _candidate_intervened(record) for record in candidate_records
+        ),
+        "successful_candidate_interventions": sum(
+            bool(record.success) and _candidate_intervened(record)
+            for record in candidate_records
+        ),
+        **attribution,
+    }
+
+
 def _rejected_same_seed_causal_history(
     store: CampaignStore,
 ) -> tuple[dict[str, int], list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Build one prompt-safe causal history shared by both rejection paths."""
 
-    completed_rows = _completed_gate_episode_rows(store)
     rejected_history: list[dict[str, int]] = []
     history_details: list[dict[str, Any]] = []
     history_by_candidate: dict[str, dict[str, Any]] = {}
@@ -2289,38 +2352,21 @@ def _rejected_same_seed_causal_history(
         prior_sha256 = prior.get("candidate_sha256")
         if not isinstance(prior_sha256, str):
             continue
-        prior_rows = [
-            EpisodeRecord.from_dict(row)
-            for sha256, row, role in completed_rows
-            if sha256 == prior_sha256 and role == "candidate_gate_episode"
-        ]
-        prior_parent_rows = [
-            EpisodeRecord.from_dict(row)
-            for sha256, row, role in completed_rows
-            if sha256 == prior_sha256 and role == "parent_gate_episode"
-        ]
-        prior_bundle = read_json(
-            store.root / "candidates" / prior_sha256 / "bundle.json"
+        detail_row = _same_seed_causal_history_detail(
+            store,
+            candidate_sha256=prior_sha256,
         )
-        prior_interventions = sum(_candidate_intervened(record) for record in prior_rows)
-        prior_successful_interventions = sum(
-            bool(record.success) and _candidate_intervened(record)
-            for record in prior_rows
-        )
-        prior_attribution = _paired_causal_attribution_summary(
-            candidate_records=prior_rows,
-            parent_records=prior_parent_rows,
-        )
+        if detail_row is None:
+            raise ValueError("rejected candidate is missing same-seed gate history")
         summary_row = {
-            "candidate_interventions": prior_interventions,
-            "successful_candidate_interventions": prior_successful_interventions,
-            **prior_attribution,
-        }
-        detail_row = {
-            "candidate_id": prior_bundle.get("candidate_id"),
-            "critic_rules": prior_bundle.get("critic_rules", ()),
-            "recovery_rules": prior_bundle.get("recovery_rules", ()),
-            **summary_row,
+            key: int(detail_row[key])
+            for key in (
+                "candidate_interventions",
+                "successful_candidate_interventions",
+                "action_diverged_candidate_count",
+                "causally_attributed_success_count",
+                "unattributed_candidate_win_count",
+            )
         }
         rejected_history.append(summary_row)
         history_details.append(detail_row)
@@ -2531,7 +2577,13 @@ def _rejected_gate_refinement_context(
     history_summary, history_details, history_by_candidate = (
         _rejected_same_seed_causal_history(store)
     )
+    decision_kind = str(decision.get("kind", ""))
     current_history = history_by_candidate.get(candidate_sha256)
+    if current_history is None and decision_kind == "regression":
+        current_history = _same_seed_causal_history_detail(
+            store,
+            candidate_sha256=candidate_sha256,
+        )
     if current_history is None:
         raise ValueError("rejected gate is missing from causal history")
     context["paired_gate_result"].update(
@@ -2547,10 +2599,47 @@ def _rejected_gate_refinement_context(
         }
     )
     context["rejected_gate_history"] = history_summary
-    isolation = _select_causal_isolation_directive(
-        current=current_history,
-        history=history_details,
-    )
+    if decision_kind == "regression":
+        context["same_seed_qualification"] = {
+            key: current_history[key]
+            for key in (
+                "candidate_interventions",
+                "successful_candidate_interventions",
+                "action_diverged_candidate_count",
+                "causally_attributed_success_count",
+                "unattributed_candidate_win_count",
+            )
+        }
+        critic_rules = current_history.get("critic_rules")
+        isolation = (
+            {
+                "mode": "preserve_regression_qualified_trigger_refine_recovery",
+                "rationale": (
+                    "The current critic produced causally attributed Same-seed "
+                    "rescues and passed that gate. Preserve it byte-for-byte "
+                    "while materially refining recovery behavior against the "
+                    "historical regression failures."
+                ),
+                "preserve_critic_rules_byte_for_byte": critic_rules,
+                "trigger_causally_attributed_successes": int(
+                    current_history["causally_attributed_success_count"]
+                ),
+            }
+            if isinstance(critic_rules, list)
+            and critic_rules
+            and int(current_history["causally_attributed_success_count"]) > 0
+            else None
+        )
+        context["required_change"] = (
+            "Use the paired regression evidence to materially refine recovery "
+            "behavior while preserving the Same-seed-qualified critic. The "
+            "next candidate must still pass every frozen historical seed."
+        )
+    else:
+        isolation = _select_causal_isolation_directive(
+            current=current_history,
+            history=history_details,
+        )
     if isolation is not None:
         context["causal_isolation_directive"] = isolation
     # Development-only calibration stays outside heldout and gate ledgers, but
