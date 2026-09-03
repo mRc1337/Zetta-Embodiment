@@ -9,6 +9,7 @@ import os
 import re
 import threading
 import uuid
+from copy import deepcopy
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -667,6 +668,20 @@ def _bind_causal_isolation_output_contract(
         )
 
 
+def _apply_harness_owned_critic_binding(
+    value: dict[str, Any], directive: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Inject an immutable Harness-selected critic before local validation."""
+
+    result = deepcopy(value)
+    if not isinstance(directive, dict):
+        return result
+    required = directive.get("preserve_critic_rules_byte_for_byte")
+    if isinstance(required, list):
+        result["critic_rules"] = deepcopy(required)
+    return result
+
+
 def _redact_evidence_text(value: str) -> str:
     value = _PATH_EVIDENCE.sub("[redacted-locator]", value)
     return _SENSITIVE_EVIDENCE.sub("[redacted-sensitive-metadata]", value)
@@ -1150,6 +1165,7 @@ class CodexStageAgent:
         system_prompt: str,
         payload: dict[str, Any],
         validator: Callable[[dict[str, Any]], None] | None = None,
+        output_transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         require_visual_evidence: bool = False,
         required_structured_evidence_ids: set[str] | None = None,
     ) -> dict[str, Any]:
@@ -1452,6 +1468,21 @@ class CodexStageAgent:
                 str(message.get("content", "")) for message in result.messages
             )
             parsed = _extract_json_object(text)
+            if output_transform is not None:
+                original_sha256 = canonical_sha256(parsed)
+                parsed = output_transform(parsed)
+                normalized_sha256 = canonical_sha256(parsed)
+                if normalized_sha256 != original_sha256:
+                    atomic_write_json(
+                        attempt / "output-transform.json",
+                        {
+                            "schema_version": 1,
+                            "transform": "harness_owned_critic_binding_v1",
+                            "original_output_sha256": original_sha256,
+                            "normalized_output_sha256": normalized_sha256,
+                        },
+                        overwrite=False,
+                    )
             atomic_write_json(attempt / "output.json", parsed, overwrite=False)
             return parsed, None, metadata, attempt
 
@@ -2358,6 +2389,9 @@ class CodexStageAgent:
             system_prompt=PROPOSAL_SYSTEM_PROMPT,
             payload=payload,
             validator=validate,
+            output_transform=lambda output: _apply_harness_owned_critic_binding(
+                output, isolation_directive
+            ),
         )
         return _candidate_from_payload(
             value,

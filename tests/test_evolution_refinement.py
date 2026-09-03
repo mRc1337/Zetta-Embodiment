@@ -49,6 +49,7 @@ from zetta.evolution.models import (
     RecoveryStep,
 )
 from zetta.evolution.stages import (
+    _apply_harness_owned_critic_binding,
     _bind_causal_isolation_output_contract,
     _validate_causal_isolation_candidate,
     blind_artifact_index,
@@ -509,6 +510,24 @@ def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:
     }
     assert payload["constraints"]["critic_rules_equal_mandatory_binding"] is True
     assert payload["constraints"]["recovery_steps_equal_mandatory_binding"] is True
+
+
+def test_harness_owned_critic_binding_is_injected_without_mutating_provider_output(
+) -> None:
+    provider_output = {
+        "critic_rules": [{"rule_id": "provider-changed"}],
+        "recovery_rules": [{"rule_id": "recovery-kept", "steps": []}],
+    }
+    required = [{"rule_id": "critic-proven", "evidence_ids": []}]
+
+    normalized = _apply_harness_owned_critic_binding(
+        provider_output,
+        {"preserve_critic_rules_byte_for_byte": required},
+    )
+
+    assert normalized["critic_rules"] == required
+    assert normalized["recovery_rules"] == provider_output["recovery_rules"]
+    assert provider_output["critic_rules"] == [{"rule_id": "provider-changed"}]
 
 
 def test_replicated_development_calibration_preserves_the_proven_trigger() -> None:

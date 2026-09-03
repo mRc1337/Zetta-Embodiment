@@ -12,6 +12,7 @@ from zetta.evolution.models import CausalDiagnosis, FailureCluster
 from zetta.evolution.stages import (
     PROPOSAL_SYSTEM_PROMPT,
     CodexStageAgent,
+    _apply_harness_owned_critic_binding,
     _candidate_from_payload,
     _diagnostic_telemetry_contract,
     _extract_json_object,
@@ -351,6 +352,57 @@ def test_stage_recovers_completed_attempt_after_validator_fix(
         "successful_attempt": "attempt-000",
         "output_sha256": canonical_sha256(recovered),
         "revalidated_completed_attempt": True,
+    }
+
+
+def test_stage_persists_harness_transformed_output_before_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider_output = {
+        "critic_rules": [{"rule_id": "provider-changed"}],
+        "recovery_rules": [{"rule_id": "recovery-kept", "steps": []}],
+    }
+    required = [{"rule_id": "critic-proven", "evidence_ids": []}]
+
+    class FakePlanner:
+        def solve(self, **kwargs: Any) -> PlannerResult:
+            return PlannerResult(
+                messages=[{"content": json.dumps(provider_output)}],
+                stats={"thread_id": "thread-transform", "thread_resumed": False},
+            )
+
+    monkeypatch.setattr(
+        "zetta.evolution.stages.build_planner",
+        lambda _kind, **_kwargs: FakePlanner(),
+    )
+    transformed = {
+        **provider_output,
+        "critic_rules": required,
+    }
+
+    def validate(value: dict[str, Any]) -> None:
+        assert value == transformed
+
+    root = tmp_path / "transform"
+    result = CodexStageAgent(output_root=root)._invoke(
+        stage="stage2-proposal",
+        system_prompt="system",
+        payload={"objective": "refine recovery"},
+        validator=validate,
+        output_transform=lambda output: _apply_harness_owned_critic_binding(
+            output,
+            {"preserve_critic_rules_byte_for_byte": required},
+        ),
+    )
+
+    assert result == transformed
+    attempt = root / "stage2-proposal/attempt-000"
+    assert read_json(attempt / "output.json") == transformed
+    assert read_json(attempt / "output-transform.json") == {
+        "schema_version": 1,
+        "transform": "harness_owned_critic_binding_v1",
+        "original_output_sha256": canonical_sha256(provider_output),
+        "normalized_output_sha256": canonical_sha256(transformed),
     }
 
 
