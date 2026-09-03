@@ -1041,6 +1041,127 @@ def test_regression_gate_adopts_all_frozen_rollout_parent_arms(
     } == {candidate.sha256}
 
 
+def test_regression_gate_rejects_early_after_first_valid_candidate_failure(
+    tmp_path: Path,
+) -> None:
+    root, queue_root, store, candidate = _setup(
+        tmp_path,
+        seeds=(11, 12),
+        reuse_parent_evidence=True,
+    )
+    _enter_regression_gate(store, candidate)
+    host = "host-a"
+    runner = PairedGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=(host,),
+        gate_kind="regression",
+    )
+    started = runner.run_once()
+    assert started["parent_adopted"] == 2
+    assert started["enqueue"]["enqueued"] == 2
+
+    queue = SharedHostQueue(queue_root)
+    claimed = queue.claim(host, worker_id="test-host-a")
+    assert claimed is not None
+    path, job = claimed
+    token = queue.claim_token(path)
+    record = _gate_episode(job, success=False)
+    queue.finish(
+        path,
+        success=True,
+        result={
+            "job_id": job.job_id,
+            "logical_id": job.logical_id,
+            "attempt_index": job.attempt_index,
+            "return_code": 0,
+            "watchdog_reason": None,
+            "elapsed_s": record.elapsed_s,
+            "result": record.as_dict(),
+            "success": True,
+            "job": job.as_dict(),
+        },
+        claim_token=token,
+    )
+
+    rejected = runner.run_once()
+    decision = rejected["decision"]
+    assert decision["kind"] == "regression"
+    assert decision["passed"] is False
+    assert decision["conclusive"] is True
+    assert decision["candidate_successes"] == 0
+    assert decision["paired_count"] == 2
+    assert "1 valid candidate failure(s)" in decision["rationale"]
+    assert rejected["status"]["valid_arms"] == 3
+    assert rejected["enqueue"]["enqueued"] == 0
+    assert queue.counts()["pending"] == 1
+    assert store.state()["phase"] == CampaignPhase.PROPOSE
+    assert len(store.gates.records()) == 2
+
+
+def test_resume_after_early_regression_commit_finishes_state_transition(
+    tmp_path: Path,
+) -> None:
+    root, queue_root, store, candidate = _setup(
+        tmp_path,
+        seeds=(11, 12),
+        reuse_parent_evidence=True,
+    )
+    _enter_regression_gate(store, candidate)
+    host = "host-a"
+    runner = PairedGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=(host,),
+        gate_kind="regression",
+    )
+    runner.run_once()
+
+    queue = SharedHostQueue(queue_root)
+    claimed = queue.claim(host, worker_id="test-host-a")
+    assert claimed is not None
+    path, job = claimed
+    token = queue.claim_token(path)
+    record = _gate_episode(job, success=False)
+    queue.finish(
+        path,
+        success=True,
+        result={
+            "job_id": job.job_id,
+            "logical_id": job.logical_id,
+            "attempt_index": job.attempt_index,
+            "return_code": 0,
+            "watchdog_reason": None,
+            "elapsed_s": record.elapsed_s,
+            "result": record.as_dict(),
+            "success": True,
+            "job": job.as_dict(),
+        },
+        claim_token=token,
+    )
+    assert runner.ingest()["accepted"] == 1
+    plan = runner.prepare()
+    decision = runner._early_impossible_regression_decision(
+        plan,
+        runner._expected_arms(plan),
+        runner._valid_rows(),
+    )
+    assert decision is not None
+    store.record_gate(decision)
+    assert store.state()["phase"] == CampaignPhase.REGRESSION_GATE
+
+    resumed = PairedGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=(host,),
+        gate_kind="regression",
+    ).run_once()
+    assert resumed["decision"] == decision.as_dict()
+    assert resumed["terminal_decision"] == decision.as_dict()
+    assert store.state()["phase"] == CampaignPhase.PROPOSE
+    assert len(store.gates.records()) == 2
+
+
 def test_formal_gates_retry_append_only_expand_heldout_and_spawn_child(
     tmp_path: Path,
 ) -> None:

@@ -1501,6 +1501,120 @@ class PairedGateRunner:
             rationale=rationale,
         )
 
+    def _early_impossible_regression_decision(
+        self,
+        plan: dict[str, Any],
+        expected: dict[str, dict[str, Any]],
+        valid: dict[str, dict[str, Any]],
+    ) -> GateDecision | None:
+        """Reject strict regression after the first valid candidate failure."""
+
+        if self.gate_kind != "regression":
+            return None
+        pairs = self._active_pairs(plan)
+        if not pairs:
+            return None
+        candidate_records: dict[str, EpisodeRecord] = {}
+        parent_records: dict[str, EpisodeRecord] = {}
+        for logical_id, row in valid.items():
+            arm = expected.get(logical_id)
+            if arm is None:
+                raise ValueError("valid gate ledger contains an unknown logical arm")
+            record = EpisodeRecord.from_dict(row)
+            if arm["arm"] == "candidate":
+                candidate_records[logical_id] = record
+            else:
+                parent_records[logical_id] = record
+        parent_ids = {str(pair["logical_ids"]["parent"]) for pair in pairs}
+        if set(parent_records) != parent_ids:
+            # Parent evidence is part of the immutable comparison and must be
+            # complete before a partial candidate ledger can become terminal.
+            return None
+        failed_candidate_ids = tuple(
+            sorted(
+                logical_id
+                for logical_id, record in candidate_records.items()
+                if not bool(record.success)
+            )
+        )
+        if not failed_candidate_ids:
+            return None
+
+        candidate_by_seed = {
+            record.seed: record for record in candidate_records.values()
+        }
+        parent_by_seed = {record.seed: record for record in parent_records.values()}
+        candidate_successes = sum(
+            bool(record.success) for record in candidate_records.values()
+        )
+        parent_successes = sum(
+            bool(record.success) for record in parent_records.values()
+        )
+        candidate_wins = sum(
+            bool(candidate_by_seed[seed].success) and not bool(parent.success)
+            for seed, parent in parent_by_seed.items()
+            if seed in candidate_by_seed
+        )
+        parent_wins = sum(
+            bool(parent.success) and not bool(candidate_by_seed[seed].success)
+            for seed, parent in parent_by_seed.items()
+            if seed in candidate_by_seed
+        )
+        candidate_safety = sum(
+            len(record.safety_events) for record in candidate_records.values()
+        )
+        parent_safety = sum(
+            len(record.safety_events) for record in parent_records.values()
+        )
+        observed_ids = tuple(sorted(candidate_records))
+        missing_ids = tuple(
+            sorted(
+                str(pair["logical_ids"]["candidate"])
+                for pair in pairs
+                if str(pair["logical_ids"]["candidate"])
+                not in candidate_records
+            )
+        )
+        rationale = (
+            "regression gate rejected early as mathematically impossible: "
+            f"observed {len(failed_candidate_ids)} valid candidate failure(s) "
+            f"across {len(observed_ids)}/{len(pairs)} historical seeds; strict "
+            "regression requires every candidate arm to succeed"
+        )
+        decision_payload = {
+            "kind": "regression",
+            "candidate_sha256": self.candidate_sha256,
+            "parent_sha256": self.candidate.parent_sha256,
+            "plan_sha256": canonical_sha256(plan),
+            "candidate_successes": candidate_successes,
+            "parent_successes": parent_successes,
+            "paired_count": len(pairs),
+            "observed_candidate_ids": observed_ids,
+            "missing_candidate_ids": missing_ids,
+            "failed_candidate_ids": failed_candidate_ids,
+            "regression_policy": (
+                "all_historical_rollouts_must_succeed_v2_early_impossible_v1"
+            ),
+        }
+        return GateDecision(
+            decision_id=f"gate-{canonical_sha256(decision_payload)[:20]}",
+            candidate_sha256=self.candidate_sha256,
+            parent_sha256=self.candidate.parent_sha256,
+            kind="regression",
+            passed=False,
+            conclusive=True,
+            candidate_successes=candidate_successes,
+            parent_successes=parent_successes,
+            paired_count=len(pairs),
+            candidate_wins=candidate_wins,
+            parent_wins=parent_wins,
+            p_value=None,
+            alpha=None,
+            candidate_safety_events=candidate_safety,
+            parent_safety_events=parent_safety,
+            rationale=rationale,
+        )
+
     def finalize_if_complete(self) -> GateDecision | None:
         """Evaluate and advance only after every parent/candidate arm is valid."""
 
@@ -1511,13 +1625,21 @@ class PairedGateRunner:
         if set(valid) != set(expected):
             recorded = self._recorded_decision()
             if recorded is not None:
-                if (
+                early_rejection = (
                     recorded.kind == "same_seed"
-                    and not recorded.passed
-                    and recorded.conclusive
                     and recorded.rationale.startswith(
                         "same-seed gate rejected early as mathematically impossible:"
                     )
+                ) or (
+                    recorded.kind == "regression"
+                    and recorded.rationale.startswith(
+                        "regression gate rejected early as mathematically impossible:"
+                    )
+                )
+                if (
+                    not recorded.passed
+                    and recorded.conclusive
+                    and early_rejection
                 ):
                     # The append-only decision and mutable phase transition are
                     # intentionally separate writes.  If a process stops after
@@ -1531,6 +1653,10 @@ class PairedGateRunner:
                     return recorded
                 raise ValueError("gate decision exists before all paired arms are valid")
             early = self._early_impossible_same_seed_decision(plan, expected, valid)
+            if early is None:
+                early = self._early_impossible_regression_decision(
+                    plan, expected, valid
+                )
             if early is not None:
                 if CampaignPhase(state["phase"]) != self._expected_phase():
                     raise ValueError(
