@@ -1283,3 +1283,68 @@ provider transcript 或 worker log。
   `official_result_present=true`、`score_countable=false`，并释放并发槽至 `0/1`。
 - 终态后已优雅停止 `18730` Pi0.5 runtime；GPU compute process 列表为空。`4110`
   provider broker 保持运行且不占 GPU。
+
+### a16：论文门禁语义复核与首次完整 Regression
+
+- a16 固定在 clean revision
+  `4ea81c4892e30afe08f60660229e917333c2e46a`，复用 a15 最强候选和全部冻结证据；
+  Same-seed 的 `35/35` 对保持原字节。按论文 Stage 2 语义修正过严的归因条件后，
+  候选以 `23/35` 成功、`13` 次因果归因 rescue、`10` 次自然/未归因成功、
+  `0` safety event 通过 Same-seed，首次进入 Regression。
+- Regression 使用冻结的 50 个历史 development seeds，parent 为 `15/50`，candidate
+  为 `21/50`；paired outcome 为 candidate wins `13`、parent wins `7`，且双方 safety
+  event 均为 0。候选成功率虽从 30% 提升到 42%，严格 Regression 要求 candidate
+  `50/50`，因此 GateDecision `gate-ca06a14aa00d30951981` 为 conclusive Reject；
+  held-out 未运行，最终 `phase=complete`、
+  `optimization_outcome=maximum_total_candidate_rounds_exhausted`。
+- 一次错误的并发能力判断曾把 worker 从 1 提到 4，触发 86 个
+  `QUOTA_EXCEEDED` infra-invalid attempt。它们均未计入分母或成败；遗留 claim 被
+  queue recovery 安全关闭，并通过授权
+  `infra-recovery-11dddec9561b87268766f68f` 为 43 个受影响逻辑臂各增加一次重试。
+  恢复单并发后完成全部 `50/50` 有效 candidate arms，未再增加 infra-invalid。
+- LoopX artifact classifier 对候选两阶段共 171 份 `summary.json` 返回
+  `171 allowed / 0 blocked`。其中 85 份属于有效 candidate episode；另外 86 份仅含
+  配额失败 attempt 的 episode-level latency，不参与有效 episode 延迟。视频仅核验文件
+  数量与非空性：Same-seed `105/105`、Regression `150/150`，合计 `255/255` 个 MP4，
+  未读取视频内容。
+
+| 阶段 / 组件 | count | weighted mean (ms) | max (ms) | 含该组件的有效 summary 数 |
+| --- | ---: | ---: | ---: | ---: |
+| Same-seed / model inference | 1234 | 170.991 | 895.410 | 35 |
+| Same-seed / policy request e2e | 1234 | 208.699 | 941.189 | 35 |
+| Same-seed / chunk e2e | 1234 | 491.620 | 1200.762 | 35 |
+| Same-seed / Critic evaluation | 2913 | 21.985 | 69.355 | 35 |
+| Same-seed / Role1 LLM request | 24 | 19316.303 | 39415.684 | 20 |
+| Same-seed / Recovery execution | 23 | 4545.884 | 9228.178 | 20 |
+| Same-seed / episode e2e | 35 | 39804.054 | 74189.036 | 35 |
+| Regression / model inference | 2039 | 170.750 | 800.595 | 50 |
+| Regression / policy request e2e | 2039 | 208.453 | 849.426 | 50 |
+| Regression / chunk e2e | 2039 | 489.419 | 1114.403 | 50 |
+| Regression / Critic evaluation | 4692 | 22.038 | 163.883 | 50 |
+| Regression / Role1 LLM request | 42 | 15833.961 | 29201.841 | 33 |
+| Regression / Recovery execution | 36 | 4693.668 | 12045.255 | 33 |
+| Regression / episode e2e | 50 | 43056.980 | 81374.329 | 50 |
+
+- a16 同一 run id 已从 `running` 更新为 `completed`，classification 为
+  `same_seed_passed_strict_regression_terminal_reject`、
+  `official_result_present=true`、`score_countable=false`。该结果证明完整链已真实走到
+  Regression，但尚未到 Held-out/Promote。
+
+### a17 前置修复与 continuation
+
+- 新增严格 Regression 确定性早停：parent 冻结证据完整后，任一有效 candidate arm
+  失败即可证明 `50/50` 已不可能，立即写入可重放的 conclusive Reject，避免继续浪费
+  其余 GPU rollout；提交 `cc6ab2f`，含正常终止与“ledger 已写、state 未推进”崩溃恢复
+  测试，相关演化测试 `94 passed`。
+- 修复原框架的 Regression→Proposal 反馈断点：旧逻辑只在“被拒的 Same-seed”历史中
+  查当前候选，因此候选通过 Same-seed、在 Regression 被拒后会报
+  `rejected gate is missing from causal history`。提交 `04e3405` 改为从候选独立的
+  Same-seed ledger 提取 seed-blind 因果摘要，并通过 mandatory binding 保留已验证
+  Critic、只允许实质修改 Recovery；相关演化/Stage session 测试 `121 passed`。
+- a17 在 clean revision `04e34058c841e4a23f7c3918a93c9878396c5105` 上通过 source
+  fence。迁移收据确认 120 条 accepted episode 与两条 GateDecision ledger 原字节
+  保留，2892 个 artifact、50 份 diagnostic telemetry 全部解析，held-out seeds 仍未
+  触碰。状态从 candidate round 2 的 Regression refinement 开始，预算最多再测试 10 个
+  candidate，不放宽 Same-seed 50%、Regression 100%、zero-FP 或 safety 门槛。
+- LoopX running row 为 `paper-v1-goal-t-t02-dev50-04e3405-a17`；Pi0.5 runtime 和
+  provider broker 均复用现有进程，没有重新挂载模型。目前控制器已进入 Proposal。
