@@ -1348,3 +1348,44 @@ provider transcript 或 worker log。
   candidate，不放宽 Same-seed 50%、Regression 100%、zero-FP 或 safety 门槛。
 - LoopX running row 为 `paper-v1-goal-t-t02-dev50-04e3405-a17`；Pi0.5 runtime 和
   provider broker 均复用现有进程，没有重新挂载模型。目前控制器已进入 Proposal。
+
+### a17/a18：Regression feedback 的 Critic 复制校验缺陷
+
+- a17 在 Regression refinement 的 Proposal 阶段连续产生 3 次 critic-copy validation
+  failure；没有登记新候选、没有运行新 episode，也没有触碰 held-out seeds 1–20。
+  LoopX board 将 `paper-v1-goal-t-t02-dev50-04e3405-a17` 终结为
+  `runner_invalid`，insight classification 为
+  `regression_feedback_critic_copy_validation_runner_invalid`；本轮
+  `valid_episode_count=0`、`infra_invalid_episode_count=0`，不是 Recovery 候选的
+  机制性 Reject。
+- 第一层修复由 Harness 将已经通过 Same-seed 验证的 Critic binding 直接注入
+  refinement 输出，避免模型负责逐字复制不可变 Critic；提交 `f670f81`，新增 refinement
+  与 Stage session 回归。a18 在该 clean revision 上重新 source-fence，迁移后保持
+  120 条 accepted episode 与 2 条 GateDecision ledger 原字节，2892 个冻结 artifact
+  引用通过校验，并从 `phase=propose`、candidate round 2 继续；held-out 仍未使用。
+- a18 的第一份 Proposal 仍被 validator 拒绝。根因不是 Critic 内容变化，而是校验器在
+  已完成 canonical normalization 后又做了一次冗余 raw mapping 比较；JSON 往返会把
+  tuple 表示为 list，因此语义相同的 `activation_conditions` 被误判为 Critic 改写。
+  a18 没有登记 candidate 或运行 episode。LoopX board 将
+  `paper-v1-goal-t-t02-dev50-f670f81-a18` 终结为 `runner_invalid`，insight
+  classification 为 `redundant_critic_binding_tuple_list_validation_runner_invalid`，
+  `proposal_validation_failure_count=1`、`valid_episode_count=0`、held-out count 为 0。
+- 提交 `9fab9ed` 删除冗余 raw comparison，只保留既有 canonical causal critic
+  validation，并新增非空 `activation_conditions` 的 tuple/list JSON 往返回归；完整
+  evolution 测试为 `200 passed`。提交已同步到 `origin/main`，clean pinned worktree
+  `source-9fab9ed` 的 source revision fence 已通过。
+- a18 的 Agent 输出保留为隔离失败证据，不会注入下一轮。下一轮必须使用独立 a19 run，
+  复用并重新校验上述 120 条 accepted episode、2 条 GateDecision 和 2892 个 artifact，
+  从 candidate round 2 的 Proposal 继续；在 a19 正式登记前，LoopX experiment board
+  为 `229/229` 行终态、`0` 行 running。
+
+### 2026-09-03 GPU 让行与暂停点
+
+- 为避免影响同机的外部测评，已优雅停止 Zetta Pi0.5/Ray runtime；raylet/worker 已退出，
+  `18730` 不再监听。仅保留 `4110` provider broker，该进程运行在 CPU 上且不占 GPU。
+- 最新只读检查显示 GPU 0–2 已空闲，GPU3 仍有一条外部测评，占用约 69.5 GiB、利用率约
+  45%。在它结束前不启动 Zetta、不执行 a18→a19 的 7.4 GB 状态迁移，也不进行大规模
+  磁盘 I/O。
+- 当前安全续点是：等待全部 GPU 空闲后，迁移到 source-fenced a19，保持 rollout
+  concurrency 为 1，继续 `Proposal → Same-seed → strict Regression → Held-out 1–20 →
+  Promote/Reject`。Pure VLA、Cluster、Diagnose、既有视频和 latency 均继续复用。
