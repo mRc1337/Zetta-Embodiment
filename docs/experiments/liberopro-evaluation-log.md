@@ -1389,3 +1389,58 @@ provider transcript 或 worker log。
 - 当前安全续点是：等待全部 GPU 空闲后，迁移到 source-fenced a19，保持 rollout
   concurrency 为 1，继续 `Proposal → Same-seed → strict Regression → Held-out 1–20 →
   Promote/Reject`。Pure VLA、Cluster、Diagnose、既有视频和 latency 均继续复用。
+
+### a19：Regression feedback 扩展搜索终态
+
+- a19 固定在 clean revision
+  `9fab9ed661346aa0181246e66fe22d9a8ea714da`。迁移 receipt 重新校验并复用
+  120 条 accepted evidence、2 条 GateDecision、2892 个 artifact 和 50 份 diagnostic
+  telemetry；没有重新执行 Pure VLA、Cluster 或 Diagnose，held-out seeds 1–20 在整个
+  过程中保持隔离。
+- 冻结 Pure VLA development baseline 为 `15/50`。a19 从 candidate round 2 的
+  Proposal 继续，实际完成 10 个 candidate、10 次 Same-seed gate 和 8 次 Regression
+  gate；Same-seed candidate success 依次为
+  `23, 23, 17, 23, 12, 25, 19, 19, 19, 19 / 35`，其中 8 次 Pass、2 次 Reject。
+- 8 个进入 Regression 的 candidate success 依次为
+  `21, 1, 2, 5, 0, 2, 0, 0 / 50`，对应 parent 均为 `15/50`；第一组 `21/50`
+  是迁移保留的 a16 gate，其余为本轮新增证据。论文复现协议中的 strict Regression
+  要求 candidate `50/50`，因此 8 次均为 conclusive Reject，没有进入 Held-out 或
+  Promote。
+- 终态共接受 18 个 gate、695 条 gate episode：candidate arm 345 条、parent arm
+  350 条；candidate 与 parent safety event 总和均为 0。最终 state 为
+  `phase=complete`、`candidate_round=11`、
+  `optimization_outcome=maximum_total_candidate_rounds_exhausted`，结论是协议合法的
+  terminal Reject，而不是 runner failure。
+- 终态 queue ledger 为 484 completed、132 cancelled、48 pending、1 running、0 failed。
+  pending/running 是终态后的残留队列记录，检查时没有对应活跃 runtime。Regression
+  自动隔离曾复用固定 receipt 名导致后续候选继承旧隔离状态；本地 runner helper 已将
+  receipt 改为按 candidate hash 唯一命名，但该私有辅助改动和原始 worker/controller
+  日志均不进入公开提交。
+- LoopX a19 行已终结为 `completed`，classification 为
+  `candidate_round_budget_exhausted_strict_regression_terminal_reject`，
+  `official_result_present=true`、`score_countable=false`。Held-out 未运行是 Regression
+  未通过后的正确门禁分支，不能作为论文 held-out 成绩。
+- 本次只使用公开安全 reducer 聚合，不读取或提交 raw trajectory、视频内容、provider
+  transcript、worker/controller log 或凭据。视频和分组件 latency 的 a19 精确终态尚未
+  形成公开分类聚合，因此不在此虚报数量。
+- 终态后 Zetta Pi0.5/Ray runtime 保持关闭，`18730` 不再监听；GPU 未被本实验占用。
+
+### 2026-09-04 存储空间快照与移机估算
+
+| 范围 | 当前占用 |
+| --- | ---: |
+| Zetta-Embodiment 仓库 | 35 MB |
+| LIBERO-PRO 仓库 | 931 MB |
+| `pi05_libero` 环境、模型、缓存与结果 | 71 GB |
+| 上述复现核心目录合计 | 约 72 GB |
+| 用户级共享 cache（不计入上述核心目录） | 15 GB |
+
+- `pi05_libero` 的主要构成为：结果 30 GB、venv 14 GB、目录内 cache 12 GB、Pi0.5
+  checkpoint 7.9 GB、Qwen critic model 7.1 GB、composite asset 998 MB。完整搬迁当前
+  可复现实验与全部既有产物需要约 72 GB；连同当前用户级共享 cache 则约 87 GB。
+- 若只保留运行主链所需的 Zetta/LIBERO-PRO、单个 Zetta venv、Pi0.5 checkpoint 和
+  composite asset，静态最低约 12–15 GB，但还需为 rollout、视频、Ray 临时文件和新结果
+  留空间。实际建议新机器至少预留 100 GB；若要保留全部 cache 并继续多轮实验，建议
+  预留 120 GB。
+- 截止本次快照，当前文件系统总容量 2.1 TB、已用 1.5 TB、可用 581 GB。日志推送后
+  暂停，不启动新的 GPU/runtime 或评测任务。
