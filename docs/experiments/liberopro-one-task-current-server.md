@@ -97,6 +97,28 @@ Recovery event 显示 `started_at_environment_step=12`、`selected_tool=set_grip
 
 随后又针对 slide drawer 修正了 primitive：触发后跳过尚未接触 fixture 的 12 步 direct sweep，先几何 re-contact，再闭爪沿 joint tangent 拉动（`slide_grasp=true`）。该版本单测为 `44 passed`，但同 seed Pro rollout 仍为 `success=false`，Actor 记录 `steps_used=151`、`sweep_steps=64`、`final_qpos=0.0`。因此当前瓶颈已经收敛到 handle 几何选择/接触姿态，尚未达到因果救援成功门禁。
 
+## 另一任务：task3 的严格 paired rescue evidence
+
+为避开 drawer-handle 特例，改跑 `libero_goal_task/task3`。该 Pro BDDL 的真实语言是 `Open the top layer of the drawer and put the cream cheese inside`。固定 `seed=21`、`policy_rng=21003`、同一 GPU3/runtime/Pi0.5 checkpoint：
+
+| arm | status | success | candidate intervention | elapsed | action artifact SHA-256 |
+|---|---|---:|---:|---:|---|
+| pure VLA baseline | `valid` | **false** | false | 39.07 s | `646b6ebf038d680837eef63b1f222613b8e7a853d33674227b8af449455af403` |
+| Zetta active bundle | `valid` | **true** | true | 77.11 s | `49e7d53439624b1cc9060531bb7d5eede3f976a71dbd00af7388a0b344027821` |
+
+Zetta arm 的 Critic 在 environment step 80 触发，Codex Role1 选择 `privileged_pick_place`，Actor 从 step 80 执行 bounded recovery 到 step 134；episode 在 step 266 收到官方 `terminated=true` / `privileged.task.success=true`。这满足“同一 task/seed 下 baseline failure、Zetta success、动作分歧、官方终止成功”的 episode-level rescue 门禁。
+
+视频和事件：
+
+```text
+.local-repro/liberopro-task3-baseline/videos/episode_agentview.mp4
+.local-repro/liberopro-task3-recovery-v2/videos/episode_agentview.mp4
+.local-repro/liberopro-task3-recovery-v2/role1/recovery-events.jsonl
+.local-repro/liberopro-task3-recovery-v2/role1/actor/step-000080-role1-*.json
+```
+
+限定说明：`privileged_pick_place` 的 Actor 结果包含 `status=grasp_not_verified`（step 80 时 EEF 与目标距离约 5.6 cm），因此不能把成功完全归因于一次已验证的抓取动作；当前最严谨表述是“Zetta 介入配对使该 Pro episode 成功，并产生可审计动作分歧”，还需要更细的物体接触/阶段证据才能声称 primitive 级因果机制已完全复现论文。
+
 审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
 
 ```text
