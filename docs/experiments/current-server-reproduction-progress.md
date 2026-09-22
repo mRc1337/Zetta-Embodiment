@@ -186,6 +186,17 @@ total 106119.26 ms
 
 这完成了当前服务器上标准 LIBERO 的单 episode、官方 horizon budget、真实 Pi0.5 inference 和自然 termination 处理验证；仍不构成多任务正式成功率或 LIBERO-Pro 论文复现。
 
+### 2026-09-22 development-only Critic/Role1 wiring
+
+使用仓库的 `prepare_libero_role1_smoke.py` 生成了明确标记为 development-only 的 synthetic Critic-Recovery bundle：
+
+- trigger step: `12`
+- critic rules: `1`
+- recovery rules: `1`
+- bundle SHA-256: `f98a733a4041146f047b67d99f1caa179b48511106fff63e920b9b930e746fde`
+
+相关 LIBERO evolution runtime、Codex planner 和 provider broker 回归测试：`47 passed`。该 bundle 只用于验证 Critic→Role1→bounded Recovery wiring，不注册到正式 campaign、不参与 promotion 或成功率统计。官方账户 Codex planner 探针此前已通过，因此当前没有 API-only 邮件暂停条件。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
