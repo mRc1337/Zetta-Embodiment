@@ -8,7 +8,7 @@
 
 ## 当前服务器审计结论
 
-当前服务器实际可见的 LIBERO 资产是标准 LIBERO：
+此前服务器实际可见的 LIBERO 资产是标准 LIBERO。本轮已按用户提供的官方仓库和 Hugging Face 数据集补齐 Pro 资产：
 
 ```text
 LIBERO root: /usr1/home/s125mdg56_02/LIBERO
@@ -18,7 +18,50 @@ benchmark_root: .../LIBERO/libero/libero
 
 配置只指向标准 `bddl_files` / `init_files`，没有 `libero-pro-config`、`libero_goal_task`、`libero_goal_swap`、`libero_10_task` 或 `libero_10_swap` 的 Pro BDDL 和 init-state 目录。在 `/usr1/home/s125mdg56_02` 下也没有找到对应的 `LIBERO-PRO` 或 `libero-pro-config` 目录。
 
-因此，当前机器不能合法地产生 Table 3 的 LIBERO-Pro 单 task 分数；用标准 LIBERO task 替代会改变 benchmark，不能作为论文 Table 3 结果。
+Pro 代码现位于 `/usr1/home/s125mdg56_02/LIBERO-PRO`，数据下载到其 `libero_data/` 后已复制到 Pro 代码的 `libero/libero/{bddl_files,init_files}`。因此可以继续进行真实 LIBERO-Pro 单 task 运行；运行时必须优先使用 `PYTHONPATH=/usr1/home/s125mdg56_02/LIBERO-PRO`，避免误加载标准 LIBERO 包。
+
+### 资产与注册验证
+
+官方仓库：`https://github.com/Zxy-MLlab/LIBERO-PRO`，浅克隆 revision：`eafdb80`。
+
+官方数据集：`zhouxueyang/LIBERO-Pro`，下载 676 个文件到 `/usr1/home/s125mdg56_02/LIBERO-PRO/libero_data`，并复制到代码树。四个目标 suite 均实际加载成功：
+
+| suite | tasks | task0 init states |
+|---|---:|---:|
+| `libero_goal_task` | 10 | 50 |
+| `libero_goal_swap` | 10 | 50 |
+| `libero_10_task` | 10 | 50 |
+| `libero_10_swap` | 10 | 50 |
+
+Zetta 环境导入名是 `liberopro.liberopro`，而官方仓库导入名是 `libero.libero`。直接运行第一次得到 `ModuleNotFoundError: No module named 'liberopro'`。解决方式是在 `/tmp/zetta-liberopro-pkg/liberopro/liberopro` 建立运行时副本，并将内部导入统一改写为 `liberopro.liberopro`；未修改仓库源代码或标准 LIBERO 安装。
+
+## 首个真实单 task 结果
+
+运行约束：GPU3、Pro Goal-T、task0、seed21、policy RNG 21001、Pi0.5 PyTorch checkpoint、官方 300 action horizon、5-action chunks、无 Role1。
+
+结果：
+
+| suite/task | prompt | status | success | env steps | elapsed |
+|---|---|---|---:|---:|---:|
+| `libero_goal_task/task0` | `open the middle drawer of the cabinet` | `valid` | **false (0%)** | 311 | 75.55 s |
+
+这是一个真实 LIBERO-Pro episode：环境 reset、policy inference、官方 horizon 和视频生成均完成；在该 task/seed 上 Pi0.5 未在 horizon 内完成目标。因此这里的单 task success rate 是 0%，不是基础设施失败，也不代表 10-task macro-average。
+
+原始结果目录（服务器本地、未提交大文件）：
+
+```text
+.local-repro/liberopro-goal-task0-seed21-v2/
+```
+
+视频：
+
+```text
+.local-repro/liberopro-goal-task0-seed21-v2/videos/episode_agentview.mp4
+.local-repro/liberopro-goal-task0-seed21-v2/videos/episode_agentview_wrist.mp4
+.local-repro/liberopro-goal-task0-seed21-v2/videos/episode_agentview_multiview.mp4
+```
+
+动作 artifact SHA-256：`147b951a95ffac1b2a9c6c7fee01e94d01ba4d4403e3d33df434be35b950db5b`。
 
 审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
 
