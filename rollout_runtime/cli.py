@@ -300,17 +300,42 @@ async def _run_smoke(args: argparse.Namespace) -> int:
                 if not isinstance(result, Err)
             ]
             mark("policy_step", phase, f"#{step + 1} horizon={horizons}")
+            # A real environment may terminate before the requested smoke
+            # budget (for example, LIBERO can finish a task in fewer steps).
+            # Stop issuing policy_step calls once every live result reports a
+            # terminal episode; otherwise the smoke harness turns a valid
+            # termination into a cascade of EPISODE_TERMINATED errors.
+            successful = [
+                result.value for result in results if not isinstance(result, Err)
+            ]
+            if successful and all(
+                bool(getattr(value, "terminated", False))
+                or bool(getattr(value, "truncated", False))
+                or bool(getattr(value, "info", {}).get("terminated"))
+                or bool(getattr(value, "info", {}).get("truncated"))
+                for value in successful
+            ):
+                break
 
         phase = time.perf_counter()
-        check(
-            "run_episode",
-            await gateway.run_episode(
-                session_ids,
-                EpisodeRequest(
-                    max_steps=args.steps, policy=policy, sink_id="mem:smoke"
+        # ``run_episode`` is an independent convenience path and cannot be
+        # called on a session that the manual smoke loop has already ended.
+        if not successful or not all(
+            bool(getattr(value, "terminated", False))
+            or bool(getattr(value, "truncated", False))
+            or bool(getattr(value, "info", {}).get("terminated"))
+            or bool(getattr(value, "info", {}).get("truncated"))
+            for value in successful
+        ):
+            check(
+                "run_episode",
+                await gateway.run_episode(
+                    session_ids,
+                    EpisodeRequest(
+                        max_steps=args.steps, policy=policy, sink_id="mem:smoke"
+                    ),
                 ),
-            ),
-        )
+            )
         mark("run_episode", phase, f"max_steps={args.steps}")
 
         phase = time.perf_counter()

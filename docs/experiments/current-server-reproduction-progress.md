@@ -159,6 +159,22 @@ total 57715.74 ms
 
 该结果进一步证明连续 action chunk 消费和 runtime 生命周期稳定；仍只属于标准 LIBERO smoke evidence，不计入正式成功率。
 
+### 2026-09-22 terminal episode smoke 修复
+
+将 smoke budget 提高到 100 后，标准 LIBERO 在第 44 个 policy step 正常返回 `terminated=True`。旧版 smoke CLI 仍继续发送剩余 step，造成级联 `EPISODE_TERMINATED` 错误。已修复 `rollout_runtime/cli.py`：检测 `StepResult.terminated/truncated` 后停止手动 policy loop，并跳过已终止 session 的重复 `run_episode`。
+
+修复后同一 GPU3 配置验证结果：
+
+```text
+policy_step #1..#44
+run_episode max_steps=100  0.00 ms
+inference requests=44 responses=44 rejected=0 late=0
+total 66925.00 ms
+==> OK
+```
+
+对应 fake runtime 回归：`15 passed`。这次修复只改变 smoke harness 的终止控制流，不改变模型、环境或正式评测门禁。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
