@@ -36,3 +36,23 @@
 此前发现单卡服务误用了 GPU0，已停止该服务及其 batch。随后将服务重启为 `CUDA_VISIBLE_DEVICES=3`，并用 `nvidia-smi` 验证 Pi0.5 进程只出现在 GPU3（约 7.7 GiB）；GPU0/1/2 仅保留桌面或空闲占用。GPU0 上的旧 episode 不计入本轮正式成绩。
 
 GPU3-only 的 Goal-T task0--task9 baseline batch 已重新启动，使用同一 seed=1、官方 300 action + 10 warm-up horizon、官方 termination 计分；每个 task 单独保存 result JSON、trajectory、latency 和视频。batch 完成后再计算 10 个 task rate 的 macro-average，并与 Zetta recovery arm 分开报告。
+
+### GPU3-only baseline 阶段性结果
+
+运行目录前缀：`.local-repro/table3-gpu3-goal-t-task*-seed1-baseline`。10/10 个 episode 均为 `valid`，没有 `infra_invalid`。每个 task 当前只有 1 个 episode，因此 task success rate 是该 episode 的 0%/100%。
+
+| task | official success | task success rate |
+|---:|---:|---:|
+| 0 | false | 0% |
+| 1 | false | 0% |
+| 2 | true | 100% |
+| 3 | false | 0% |
+| 4 | false | 0% |
+| 5 | false | 0% |
+| 6 | false | 0% |
+| 7 | true | 100% |
+| 8 | true | 100% |
+| 9 | false | 0% |
+| **Average (macro over 10 tasks)** | **3/10** | **30.0%** |
+
+这是一轮 GPU3-only、single-seed 的 baseline 阶段性结果，不是论文最终多 seed/Table 3 成绩，也不是 Zetta recovery 的最终成绩。要复现论文中“每 task 取 best result 并计算 Average”的表格，还需要在同一 GPU3 协议下完成 recovery arm 和预注册的多 seed 评测；本表不把 GPU0 运行结果混入。
