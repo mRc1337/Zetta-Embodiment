@@ -228,6 +228,24 @@ runtime=http://127.0.0.1:18732
 
 这是真正经过 campaign rollout 入口、远程 runtime、标准 LIBERO 环境和 Pi0.5 policy 的端到端成功 episode。它仍是单任务 development 证据，不是多任务正式成功率或 LIBERO-Pro 论文结果。
 
+### 2026-09-22 官方 Codex 驱动的 Role1/Recovery 端到端通过
+
+复用 development-only bundle，在标准 LIBERO-10 task0 seed22 上启用 `--role1-planner codex --role1-model gpt-5.6-sol --reasoning-effort high`，通过已登录的官方 ChatGPT/Codex 账户完成一次真实 Role1 决策。
+
+结果：
+
+- `status=valid`
+- `success=true`
+- elapsed: `152.07 s`
+- `artifact_index.candidate_intervention=true`
+- environment step 12 触发 synthetic Critic
+- Codex Role1 decision `role1-dd7f2233941168d3b93fe9e5`
+- decision `proposal_disposition=accept`、`selected_stage=recover`、`selected_tool=libero.set_gripper`
+- bounded recovery 执行 2 steps，并写入 `recovery-events.jsonl`，最终 `status=completed`
+- 没有使用 API key，也没有触发邮件暂停条件
+
+这证明当前服务器上 Critic → 官方 Codex Role1 → bounded Recovery → continuation 的真实在线链路已经打通。该结果仍严格属于 development-only wiring evidence，不进入正式 promotion 或 benchmark score。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
