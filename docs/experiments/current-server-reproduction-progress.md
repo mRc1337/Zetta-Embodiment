@@ -102,6 +102,12 @@ CUDA_VISIBLE_DEVICES=3 python -m pytest -q \
 4. 任何短 rollout、reset 成功或单 suite 结果都只能作为 smoke/infrastructure evidence，不能写成正式成功率。
 5. `.local-repro/` 下的 Codex 原始探针输出已加入 `.gitignore`，其中可能包含 provider 运行细节，不进入公开提交；公开文档只保留摘要。
 
+### 2026-09-22 标准 runtime 烟测
+
+使用 `zetta_libero_pi05.yaml` 的单卡配置，将模型路径指向现有 Pi0.5 cache，并设置 `CUDA_VISIBLE_DEVICES=3`、EGL 和标准 LIBERO 配置。Ray 本地实例可以启动，但约 90 秒内 HTTP 服务端口 `18731` 始终未监听，GPU3 保持约 12 MiB/0%，说明流程卡在 worker/channel 初始化阶段，尚未进入模型加载或环境 reset。该进程随后已停止，未留下运行中的 Ray/runtime 服务。
+
+这次结果记录为 runtime infrastructure smoke failure，不计入策略成功率，也不代表 LIBERO 任务失败。下一次应优先使用更小的 `local`/`inproc` 配置或直接调用 runtime smoke harness，逐步隔离 Ray channel 初始化与 OpenPI backend 初始化问题。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
