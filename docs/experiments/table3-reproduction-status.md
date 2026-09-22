@@ -67,3 +67,9 @@ GPU3-only 的 Goal-T task0--task9 baseline batch 已重新启动，使用同一 
 - elapsed：117.6 s。
 
 这证明 recovery 在 GPU3 上可以改变 task3 的 episode outcome，但目前只有 task3 的 recovery paired 结果；不能把它外推为完整 10-task recovery 表。
+
+### Observed-best（非最终论文成绩）
+
+若仅汇总当前 GPU3 实际观测到的每个 task 的最好 episode（task3 使用已验证 recovery，其余 task 使用 baseline），则为 `4/10 = 40.0%`：task2、task3、task7、task8 成功。该数字是当前 single-seed observed-best 的下界/阶段性指标，不等价于论文的多 seed method-level success rate；尚未完成的 task-specific recovery 不得被默认为失败或成功。
+
+task0 recovery 曾生成完整 trajectory/video/latency，但 runner owner 在最终 result 写入前退出，故该次不计分；日志显示为 Ray actor owner crash，而非官方任务成功。
