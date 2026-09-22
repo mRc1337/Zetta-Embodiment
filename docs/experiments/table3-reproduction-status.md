@@ -70,6 +70,6 @@ GPU3-only 的 Goal-T task0--task9 baseline batch 已重新启动，使用同一 
 
 ### Observed-best（非最终论文成绩）
 
-若仅汇总当前 GPU3 实际观测到的每个 task 的最好 episode（task3 使用已验证 recovery，其余 task 使用 baseline），则为 `4/10 = 40.0%`：task2、task3、task7、task8 成功。该数字是当前 single-seed observed-best 的下界/阶段性指标，不等价于论文的多 seed method-level success rate；尚未完成的 task-specific recovery 不得被默认为失败或成功。
+若仅汇总当前 GPU3 实际观测到的每个 task 的最好 episode（task0、task3 使用已验证 recovery，其余 task 使用 baseline），则为 `5/10 = 50.0%`：task0、task2、task3、task7、task8 成功。该数字是当前 single-seed observed-best 的下界/阶段性指标，不等价于论文的多 seed method-level success rate；尚未完成的 task-specific recovery 不得被默认为失败或成功。
 
-task0 recovery 曾生成完整 trajectory/video/latency，但 runner owner 在最终 result 写入前退出，故该次不计分；日志显示为 Ray actor owner crash，而非官方任务成功。
+task0 recovery 的首次重试因 Role1 Codex 30 秒超时而失败；将 `--role1-timeout-s` 提高到 120 秒后，第二次重试得到 `valid + candidate_intervention=true + official success=true`。结果文件为 `.local-repro/table3-gpu3-goal-t-task0-seed1-recovery-v3-result.json`。此前一次 owner crash 产生的完整 trajectory/video/latency 仍不计分。
