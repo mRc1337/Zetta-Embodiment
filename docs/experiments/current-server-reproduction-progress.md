@@ -145,6 +145,20 @@ total 104723.92 ms
 
 这证明 GPU3 上的 Zetta runtime、标准 LIBERO reset、Pi0.5 PyTorch inference 和最小 episode 生命周期已经连通。它仍是 infrastructure/action smoke，不是正式 benchmark 成功率，也不等同于 LIBERO-Pro 论文复现。
 
+随后将同一配置扩展到连续 8 个 policy step，结果仍通过：
+
+```text
+create_sessions  1 session(s)      67.87 ms
+reset                                7867.10 ms
+policy_step #1..#8                 1166.88 ms + 7 × ~329 ms
+run_episode max_steps=8             2571.10 ms
+inference requests=16 responses=16 rejected=0 late=0
+total 57715.74 ms
+==> OK
+```
+
+该结果进一步证明连续 action chunk 消费和 runtime 生命周期稳定；仍只属于标准 LIBERO smoke evidence，不计入正式成功率。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
