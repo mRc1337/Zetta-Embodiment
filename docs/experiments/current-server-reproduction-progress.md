@@ -108,6 +108,16 @@ CUDA_VISIBLE_DEVICES=3 python -m pytest -q \
 
 这次结果记录为 runtime infrastructure smoke failure，不计入策略成功率，也不代表 LIBERO 任务失败。下一次应优先使用更小的 `local`/`inproc` 配置或直接调用 runtime smoke harness，逐步隔离 Ray channel 初始化与 OpenPI backend 初始化问题。
 
+### 2026-09-22 in-process smoke 的进一步定位
+
+将 transport 改为 `inproc` 后，最小 smoke 不再卡在 Ray 初始化。第一次失败是当前环境缺少 OpenPI 要求的 `transformers_replace`；已按 OpenPI 版本要求确认 `transformers==4.53.2` 并把替换模块安装到环境中。第二次 smoke 已进入 Zetta Pi0 backend，但随后失败：
+
+```text
+FileNotFoundError: .../pi05_libero/model.safetensors
+```
+
+服务器现有 `/usr1/home/s125mdg56_02/.cache/openpi/openpi-assets/checkpoints/pi05_libero` 只包含 OpenPI OCDBT/JAX 参数文件（`params/manifest.ocdbt`、`_METADATA` 等），没有 Zetta 当前 PyTorch backend 所需的 `model.safetensors`。因此当前不能安全启动真实 Pi0.5 rollout；这不是 LIBERO task failure，也不是 LLM/API 问题。需要获得或转换兼容的 PyTorch checkpoint 后，才能继续 GPU3 上的端到端 action smoke。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
