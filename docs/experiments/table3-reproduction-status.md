@@ -56,3 +56,14 @@ GPU3-only 的 Goal-T task0--task9 baseline batch 已重新启动，使用同一 
 | **Average (macro over 10 tasks)** | **3/10** | **30.0%** |
 
 这是一轮 GPU3-only、single-seed 的 baseline 阶段性结果，不是论文最终多 seed/Table 3 成绩，也不是 Zetta recovery 的最终成绩。要复现论文中“每 task 取 best result 并计算 Average”的表格，还需要在同一 GPU3 协议下完成 recovery arm 和预注册的多 seed 评测；本表不把 GPU0 运行结果混入。
+
+### GPU3-only paired recovery 证据
+
+在同一 GPU3 runtime 上对 task3 使用冻结的 `.local-repro/liberopro-task3-recovery-bundle.json`（bundle SHA-256 `fb797cf6e18b43f5faa2e2d230e56a423fdb06f6f4dfc8d361257d8d1578b79e`）运行 `active_bundle + Role1 codex`：
+
+- baseline task3：success=false；
+- recovery task3：`valid`、`candidate_intervention=true`、official success=true；
+- artifact：`.local-repro/table3-gpu3-goal-t-task3-seed1-recovery-v2-result.json`；
+- elapsed：117.6 s。
+
+这证明 recovery 在 GPU3 上可以改变 task3 的 episode outcome，但目前只有 task3 的 recovery paired 结果；不能把它外推为完整 10-task recovery 表。
