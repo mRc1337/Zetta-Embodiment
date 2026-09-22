@@ -118,6 +118,33 @@ FileNotFoundError: .../pi05_libero/model.safetensors
 
 服务器现有 `/usr1/home/s125mdg56_02/.cache/openpi/openpi-assets/checkpoints/pi05_libero` 只包含 OpenPI OCDBT/JAX 参数文件（`params/manifest.ocdbt`、`_METADATA` 等），没有 Zetta 当前 PyTorch backend 所需的 `model.safetensors`。因此当前不能安全启动真实 Pi0.5 rollout；这不是 LIBERO task failure，也不是 LLM/API 问题。需要获得或转换兼容的 PyTorch checkpoint 后，才能继续 GPU3 上的端到端 action smoke。
 
+### 2026-09-22 checkpoint 转换与真实 smoke 通过
+
+OpenPI 自带的 `examples/convert_jax_model_to_pytorch.py` 已将现有 OCDBT checkpoint 转换为 PyTorch 格式：
+
+```text
+/usr1/home/s125mdg56_02/.cache/openpi/openpi-assets/checkpoints/pi05_libero_pytorch/model.safetensors
+```
+
+转换使用 `CUDA_VISIBLE_DEVICES=3`，没有覆盖原始 checkpoint。补齐对应的 LIBERO `norm_stats.json` 后，继续补装标准 LIBERO worker 所需的 `gym==0.25.2` 和 `matplotlib`。
+
+最终使用标准 LIBERO、in-process transport、单 session、单 policy step 的真实 smoke 结果：
+
+```text
+transport=inproc env_family=libero
+create_sessions  1 session(s)     74.31 ms
+reset                               24242.38 ms
+observe                                 0.17 ms
+policy_step #1 horizon=[5]        12168.29 ms
+run_episode max_steps=1              334.83 ms
+close_sessions                         0.11 ms
+inference requests=2 responses=2 rejected=0 late=0
+total 104723.92 ms
+==> OK
+```
+
+这证明 GPU3 上的 Zetta runtime、标准 LIBERO reset、Pi0.5 PyTorch inference 和最小 episode 生命周期已经连通。它仍是 infrastructure/action smoke，不是正式 benchmark 成功率，也不等同于 LIBERO-Pro 论文复现。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
