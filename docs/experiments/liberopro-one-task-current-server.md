@@ -95,6 +95,8 @@ Recovery event 显示 `started_at_environment_step=12`、`selected_tool=set_grip
 
 这两次运行证明更强的 semantic Recovery primitive 已进入 Pro runtime 并被 Actor 执行，但也暴露出当前接触几何 fallback 没有抓住该随机化抽屉。仍不能宣称 Zetta 已完成 Pro 救援成功；下一步需要修正 drawer handle 的接触点/方向后再做同 seed 配对。
 
+随后又针对 slide drawer 修正了 primitive：触发后跳过尚未接触 fixture 的 12 步 direct sweep，先几何 re-contact，再闭爪沿 joint tangent 拉动（`slide_grasp=true`）。该版本单测为 `44 passed`，但同 seed Pro rollout 仍为 `success=false`，Actor 记录 `steps_used=151`、`sweep_steps=64`、`final_qpos=0.0`。因此当前瓶颈已经收敛到 handle 几何选择/接触姿态，尚未达到因果救援成功门禁。
+
 审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
 
 ```text

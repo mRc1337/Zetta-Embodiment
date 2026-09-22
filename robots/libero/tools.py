@@ -1732,6 +1732,7 @@ class LiberoPrimitives:
         max_sweep_steps: int = 64,
         sweep_step_m: float = 0.015,
         close_steps: int = 3,
+        slide_grasp: bool = False,
     ) -> dict[str, Any]:
         """Servo a named fixture joint using audited geometry and real actions.
 
@@ -1864,7 +1865,12 @@ class LiberoPrimitives:
                 # evidence uses a roughly 2 cm downward push per step, while
                 # the hinge path retains its historical small brake.
                 action[2] -= 0.4 if slide_joint else 0.02
-                action[6] = -1.0 if slide_joint else 1.0
+                # LIBERO-Pro's wooden cabinet exposes a graspable drawer
+                # handle.  Keeping Panda's fingers open only presses the
+                # handle downward and produced no slide-joint response on
+                # the Pro perturbation.  Close for slide joints so the
+                # subsequent tangent command can transmit pulling force.
+                action[6] = 1.0 if (slide_joint and slide_grasp) else (-1.0 if slide_joint else 1.0)
                 self._step_env(action)
                 sweep_steps += 1
                 used += 1
@@ -1912,7 +1918,16 @@ class LiberoPrimitives:
         # fixture. Brake at that realized contact before moving away; lifting
         # first lets the existing angular velocity carry a knob away from its
         # requested endpoint.
-        direct_budget = min(max_sweep_steps, 12)
+        # A drawer trigger may fire before the VLA has reached the fixture.
+        # Treating those first commands as "direct contact" sweeps through
+        # free space and can leave the EEF below the handle.  Slides therefore
+        # always use the geometry-guided re-contact path first; hinges retain
+        # the fast in-contact correction.
+        direct_budget = (
+            0
+            if slide_joint and slide_grasp
+            else min(max_sweep_steps, 12)
+        )
         satisfied, direct_response, direct_contact_steps = sweep(
             budget=direct_budget
         )
@@ -1941,7 +1956,7 @@ class LiberoPrimitives:
                 approach[2] = max(float(approach[2]), float(retreat[2]))
                 self.move_pose(
                     approach.tolist(),
-                    gripper=-1.0,
+                    gripper=1.0 if (slide_joint and slide_grasp) else -1.0,
                     step_clip=0.02,
                     tol=0.01,
                     max_steps=40,
@@ -1958,7 +1973,7 @@ class LiberoPrimitives:
             if not terminal():
                 for _ in range(close_steps):
                     action = np.zeros(7, dtype=np.float32)
-                    action[6] = -1.0 if slide_joint else 1.0
+                    action[6] = 1.0 if (slide_joint and slide_grasp) else (-1.0 if slide_joint else 1.0)
                     self._step_env(action)
                     if terminal():
                         break
