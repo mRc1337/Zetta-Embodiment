@@ -199,6 +199,35 @@ total 106119.26 ms
 
 另外修复了 `robots/libero/run_evolution_rollout.py` 对 LIBERO 类型的硬编码：原入口无论外部环境如何都把子进程和远程 runtime 的 `libero_variant` 设为 `pro`，会阻断标准 LIBERO 资产。现在读取 `LIBERO_TYPE`（支持 `standard`、`pro`、`plus`，默认仍为 `pro` 以保持兼容），因此标准资产可通过同一 rollout 入口复现。定向 LIBERO 测试结果：`51 passed`。
 
+### 2026-09-22 完整 rollout 入口端到端通过
+
+在 GPU3 上启动标准 LIBERO 单卡 runtime（端口 `18732`），通过修复后的 `robots/libero/run_evolution_rollout.py` 运行：
+
+```text
+suite=libero_10
+task_id=0
+seed=21
+baseline_mode=strict_pure_vla
+max_actions=520
+wait_steps=15
+actions_per_chunk=5
+role1_planner=none
+runtime=http://127.0.0.1:18732
+```
+
+结果文件为本地 development-only artifact（未提交原始轨迹/视频）：
+
+- `status=valid`
+- `success=true`
+- elapsed: `48.71 s`
+- trajectory action count: `315`
+- event count: `689`
+- 3 路 episode video 已生成
+- candidate intervention: `false`
+- latency summary 已生成
+
+这是真正经过 campaign rollout 入口、远程 runtime、标准 LIBERO 环境和 Pi0.5 policy 的端到端成功 episode。它仍是单任务 development 证据，不是多任务正式成功率或 LIBERO-Pro 论文结果。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
