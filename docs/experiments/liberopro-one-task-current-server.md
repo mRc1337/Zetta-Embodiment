@@ -54,6 +54,39 @@ python scripts/evolution/integrate_liberopro_benchmark.py --help  # 可执行
 - rollout 视频、trajectory/action JSONL、latency summary；
 - 一份 Markdown，明确区分真实 Pro 结果、基础设施失败和未完成项。
 
+## 资产到位后的单 task 命令模板
+
+下面模板只启动 GPU3，并在运行前对 Pro 配置路径做 fail-fast 检查；将 `LIBERO_PRO_CONFIG`、suite、task prompt 和 checkpoint 改成实际值即可：
+
+```bash
+export LIBERO_PRO_CONFIG=/path/to/libero-pro-config
+test -d "$LIBERO_PRO_CONFIG" || { echo "missing LIBERO_PRO_CONFIG"; exit 2; }
+
+CUDA_VISIBLE_DEVICES=3 \
+LIBERO_TYPE=pro \
+LIBERO_CONFIG_PATH="$LIBERO_PRO_CONFIG" \
+TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1 \
+MUJOCO_GL=egl PYOPENGL_PLATFORM=egl EGL_PLATFORM=egl \
+python -m rollout_runtime.cli serve \
+  --config /path/to/pro-runtime.yaml --host 127.0.0.1 --port 18740 \
+  --launch local
+
+# 另一终端：只跑一个 task，成功率就是该 task 的 0% 或 100%
+CUDA_VISIBLE_DEVICES=3 LIBERO_CONFIG_PATH="$LIBERO_PRO_CONFIG" \
+python robots/libero/run_evolution_rollout.py \
+  --suite libero_goal_task --task-id 0 \
+  --task libero_goal_task/task0 --seed 21 --policy-rng 21001 \
+  --logical-id liberopro-one-task0-seed21 --attempt-index 0 --generation 0 \
+  --baseline-mode strict_pure_vla \
+  --output-dir .local-repro/liberopro-one-task0-seed21 \
+  --result-file .local-repro/liberopro-one-task0-seed21-result.json \
+  --runtime-url http://127.0.0.1:18740 --policy-id pi05 \
+  --max-actions 300 --wait-steps 10 --actions-per-chunk 5 \
+  --role1-planner none --record-latency
+```
+
+若该 task 的官方 termination 成功，则该单 task 的 success rate 为 100%；否则为 0%。这不是 10-task macro-average，符合本阶段“只复现一个 task”的范围。
+
 ## 当前阶段结论
 
 本提交完成了“单 task Pro 复现前的服务器审计和阻塞定位”，但**没有把标准 LIBERO 结果冒充 LIBERO-Pro Table 3 结果**。阻塞根因是 Pro benchmark 资产缺失，而不是 GPU3、runtime 或 rollout 入口故障。
