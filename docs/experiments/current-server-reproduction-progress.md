@@ -175,6 +175,17 @@ total 66925.00 ms
 
 对应 fake runtime 回归：`15 passed`。这次修复只改变 smoke harness 的终止控制流，不改变模型、环境或正式评测门禁。
 
+随后使用标准 LIBERO-10 配置的官方 `max_episode_steps=520` smoke budget 复跑：环境在第 42 个 policy step 正常终止，harness 自动停止并返回成功：
+
+```text
+run_episode max_steps=520  0.00 ms
+inference requests=42 responses=42 rejected=0 late=0
+total 106119.26 ms
+==> OK
+```
+
+这完成了当前服务器上标准 LIBERO 的单 episode、官方 horizon budget、真实 Pi0.5 inference 和自然 termination 处理验证；仍不构成多任务正式成功率或 LIBERO-Pro 论文复现。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->
