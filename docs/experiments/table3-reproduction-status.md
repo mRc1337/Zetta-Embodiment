@@ -29,5 +29,4 @@
 
 ## 当前阻塞
 
-本机当前不存在此前日志中使用的 `/home/pai/zxw/LIBERO-PRO`、`/home/pai/zxw/openpi_data/pi05_libero` 路径；因此无法在当前状态下启动剩余 10-task campaign。待 benchmark、checkpoint 和服务恢复后，应从 task0--task9 重新执行完整矩阵，而不是用现有 4 个 task 的样本外推平均值。
-
+已确认 benchmark 本体现已位于 `/usr1/home/s125mdg56_02/LIBERO-PRO`，四个正式 suite 各有 10 个 BDDL（共 40 个任务），因此 benchmark 资产本身不再是阻塞。当前仍缺少此前日志中使用的 Pi0.5 checkpoint/runtime 服务（旧路径 `/home/pai/zxw/openpi_data/pi05_libero` 不存在），所以尚不能启动剩余 10-task campaign。待 checkpoint 和服务恢复后，应从 task0--task9 重新执行完整矩阵，而不是用现有 4 个 task 的样本外推平均值。
