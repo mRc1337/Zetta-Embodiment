@@ -86,6 +86,15 @@ Recovery event 显示 `started_at_environment_step=12`、`selected_tool=set_grip
 
 但该 Recovery 仍未完成抽屉任务（`success=false`），因此当前证据**不能**宣称 Zetta 已经把 Pro 失败任务救回。要完成因果有效性证明，还需要同一 Pro task/seed 满足 `baseline success=false` 且 `Zetta success=true` 的配对结果；当前 bundle 的固定 gripper primitive 不足以完成该救援。
 
+### 语义 drawer primitive 追加尝试
+
+为避免把失败归因于单一夹爪动作，新增并接通了只读 Runtime 扩展 `libero.semantic_joint_plan`，然后使用 `semantic_joint_interact` 对 `wooden_cabinet_1_bottom_level` 做 bounded OSC 拉动：
+
+- `direction=upper`：初始 qpos 已为 `0.0`，上界方向没有产生有效抽屉位移；
+- `direction=lower`：Role1/Actor 执行了 154 个环境 steps、12 个 direct-contact steps，但 `final_qpos=0.0`、`joint_goal_satisfied=false`，episode 仍 `success=false`。
+
+这两次运行证明更强的 semantic Recovery primitive 已进入 Pro runtime 并被 Actor 执行，但也暴露出当前接触几何 fallback 没有抓住该随机化抽屉。仍不能宣称 Zetta 已完成 Pro 救援成功；下一步需要修正 drawer handle 的接触点/方向后再做同 seed 配对。
+
 审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
 
 ```text

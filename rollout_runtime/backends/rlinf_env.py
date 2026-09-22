@@ -1299,6 +1299,19 @@ class LiberoEnvCore:
             return self._privileged_critic_state(
                 state, reset_tracker_override=args.get("reset_tracker")
             )
+        if method == "semantic_joint_plan":
+            worker = state.env.env.workers[state.lane_index]
+            payload = worker.render(
+                **{
+                    libero_privileged.RENDER_EXTENSION_KEY: (
+                        libero_privileged.SEMANTIC_JOINT_PLAN_METHOD
+                    ),
+                    "entity": str(args.get("entity", "")),
+                    "joint": str(args.get("joint", "")),
+                    "direction": str(args.get("direction", "upper")),
+                }
+            )
+            return dict(payload)
         return self._privileged_contacts(state, args)
 
     # ------------------------------------------------------------------ Internal

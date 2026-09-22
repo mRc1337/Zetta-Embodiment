@@ -75,6 +75,7 @@ LIBERO_EXTENSIONS = frozenset(
         "libero.cached_image",
         "libero.raw_obs",
         "libero.critic_state",
+        "libero.semantic_joint_plan",
     }
 )
 """The full names of LIBERO's privileged methods.
