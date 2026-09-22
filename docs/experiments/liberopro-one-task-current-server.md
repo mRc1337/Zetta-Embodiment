@@ -63,6 +63,29 @@ Zetta 环境导入名是 `liberopro.liberopro`，而官方仓库导入名是 `li
 
 动作 artifact SHA-256：`147b951a95ffac1b2a9c6c7fee01e94d01ba4d4403e3d33df434be35b950db5b`。
 
+## 同 seed 的 Zetta 介入配对
+
+在相同 `libero_goal_task/task0`、`seed=21`、`policy_rng=21001` 上启用 development bundle、Critic 和官方 Codex Role1：
+
+| arm | status | success | Zetta intervention | elapsed |
+|---|---|---:|---|---:|
+| pure VLA baseline | `valid` | false | none | 75.55 s |
+| Zetta active bundle | `valid` | false | Critic step 12；Role1 accepted；`set_gripper` 2 steps | 201.18 s |
+
+Recovery 运行生成了真实 Pro artifact：
+
+```text
+.local-repro/liberopro-goal-task0-seed21-recovery/role1/recovery-events.jsonl
+.local-repro/liberopro-goal-task0-seed21-recovery/role1/actor/step-000012-role1-*.json
+.local-repro/liberopro-goal-task0-seed21-recovery/videos/episode_agentview.mp4
+.local-repro/liberopro-goal-task0-seed21-recovery/videos/episode_agentview_wrist.mp4
+.local-repro/liberopro-goal-task0-seed21-recovery/videos/episode_agentview_multiview.mp4
+```
+
+Recovery event 显示 `started_at_environment_step=12`、`selected_tool=set_gripper`、`executed_horizon=2`、`status=completed`，并且 `candidate_intervention=true`。这证明 Zetta 的介入链路在 LIBERO-Pro 中真实运行并改变了 episode action stream。
+
+但该 Recovery 仍未完成抽屉任务（`success=false`），因此当前证据**不能**宣称 Zetta 已经把 Pro 失败任务救回。要完成因果有效性证明，还需要同一 Pro task/seed 满足 `baseline success=false` 且 `Zetta success=true` 的配对结果；当前 bundle 的固定 gripper primitive 不足以完成该救援。
+
 审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
 
 ```text
