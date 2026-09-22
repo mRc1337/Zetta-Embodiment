@@ -20,6 +20,15 @@ benchmark_root: .../LIBERO/libero/libero
 
 因此，当前机器不能合法地产生 Table 3 的 LIBERO-Pro 单 task 分数；用标准 LIBERO task 替代会改变 benchmark，不能作为论文 Table 3 结果。
 
+审计还直接验证了仓库提供的 Pro 安装工具入口存在，但其历史源路径不存在：
+
+```text
+python scripts/evolution/integrate_liberopro_benchmark.py --help  # 可执行
+/home/pai/zxw/LIBERO-PRO/libero/libero                    # 不存在
+```
+
+所以阻塞发生在 benchmark 数据输入层，而不是注册脚本缺失或 rollout 入口不可用。
+
 ## 已完成的可复现基础
 
 - Zetta runtime 已配置为单卡 `CUDA_VISIBLE_DEVICES=3`。
@@ -48,4 +57,3 @@ benchmark_root: .../LIBERO/libero/libero
 ## 当前阶段结论
 
 本提交完成了“单 task Pro 复现前的服务器审计和阻塞定位”，但**没有把标准 LIBERO 结果冒充 LIBERO-Pro Table 3 结果**。阻塞根因是 Pro benchmark 资产缺失，而不是 GPU3、runtime 或 rollout 入口故障。
-
