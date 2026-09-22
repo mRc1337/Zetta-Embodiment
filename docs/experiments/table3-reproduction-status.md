@@ -29,4 +29,4 @@
 
 ## 当前阻塞
 
-已确认 benchmark 本体现已位于 `/usr1/home/s125mdg56_02/LIBERO-PRO`，四个正式 suite 各有 10 个 BDDL（共 40 个任务），因此 benchmark 资产本身不再是阻塞。当前仍缺少此前日志中使用的 Pi0.5 checkpoint/runtime 服务（旧路径 `/home/pai/zxw/openpi_data/pi05_libero` 不存在），所以尚不能启动剩余 10-task campaign。待 checkpoint 和服务恢复后，应从 task0--task9 重新执行完整矩阵，而不是用现有 4 个 task 的样本外推平均值。
+已确认 benchmark 本体现已位于 `/usr1/home/s125mdg56_02/LIBERO-PRO`，四个正式 suite 各有 10 个 BDDL（共 40 个任务）。同时找到了本机 OpenPI Pi0.5 权重：`/usr1/home/s125mdg56_02/.cache/openpi/openpi-assets/checkpoints/pi05_libero`。已用该权重生成服务配置并尝试启动 Zetta Ray runtime，但服务在 actor ready 前持续不监听 gateway 端口，最终停止；当前仍需定位 runtime 启动失败（日志仅产生空的 Ray actor worker 错误文件，未形成可用 inference service）。因此尚不能启动剩余 10-task campaign，也不能用现有 4 个 task 的样本外推平均值。
