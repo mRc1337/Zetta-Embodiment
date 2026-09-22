@@ -197,6 +197,8 @@ total 106119.26 ms
 
 相关 LIBERO evolution runtime、Codex planner 和 provider broker 回归测试：`47 passed`。该 bundle 只用于验证 Critic→Role1→bounded Recovery wiring，不注册到正式 campaign、不参与 promotion 或成功率统计。官方账户 Codex planner 探针此前已通过，因此当前没有 API-only 邮件暂停条件。
 
+另外修复了 `robots/libero/run_evolution_rollout.py` 对 LIBERO 类型的硬编码：原入口无论外部环境如何都把子进程和远程 runtime 的 `libero_variant` 设为 `pro`，会阻断标准 LIBERO 资产。现在读取 `LIBERO_TYPE`（支持 `standard`、`pro`、`plus`，默认仍为 `pro` 以保持兼容），因此标准资产可通过同一 rollout 入口复现。定向 LIBERO 测试结果：`51 passed`。
+
 ## 建议的下一步
 
 在 GPU3 空闲时，使用 `rollout_runtime/config/presets/zetta_libero_pi05.yaml` 的单卡配置，设置标准 LIBERO、Pi0.5 cache 路径、EGL 环境和 `CUDA_VISIBLE_DEVICES=3`，先完成一个短 horizon 的真实 reset/action smoke；通过后再决定是否扩展到完整标准 LIBERO campaign。所有 LLM 请求继续使用 `--role1-planner codex`，不配置 API key。<!-- end -->

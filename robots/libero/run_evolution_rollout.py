@@ -415,6 +415,9 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
         raise ValueError("candidate bundle requires a Role1 planner")
 
     max_episode_steps = int(horizon_contract["max_episode_steps"])
+    libero_type = os.environ.get("LIBERO_TYPE", "pro").strip().lower() or "pro"
+    if libero_type not in {"standard", "pro", "plus"}:
+        raise ValueError(f"unsupported LIBERO_TYPE: {libero_type!r}")
     critic_rules = [rule.as_dict() for rule in bundle.critic_rules] if bundle else []
     runtime_session_id = None
     runtime_client = None
@@ -428,7 +431,7 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
         env_vars = _frozen_subprocess_environment(os.environ.copy())
         env_vars.update(
             {
-                "LIBERO_TYPE": "pro",
+                "LIBERO_TYPE": libero_type,
                 "MUJOCO_GL": "egl",
                 "PYOPENGL_PLATFORM": "egl",
                 "ROBOT_PLATFORM": "LIBERO",
@@ -534,7 +537,7 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
                                     "task_suite_name": args.suite,
                                     "task_id": args.task_id,
                                     "max_episode_steps": max_episode_steps,
-                                    "libero_variant": "pro",
+                                    "libero_variant": libero_type,
                                 },
                                 pool_size=1,
                                 resource_hints={"accelerator": True},
