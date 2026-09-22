@@ -40,6 +40,17 @@ Recovery arm 的在线事件：
 
 ## 视频
 
+## 后续基线扫描（同一环境）
+
+为寻找满足上述因果门禁的样本，在同一标准 LIBERO-10 task0、GPU3、Pi0.5 runtime 和 520 action budget 下追加运行了两个纯 VLA 基线：
+
+| seed | status | success | elapsed |
+|---:|---|---:|---:|
+| 1 | valid | true | 62.25 s |
+| 2 | valid | true | 49.02 s |
+
+这两个 seed 也没有产生 baseline failure，因此截至本文更新时间仍不能声称“Recovery 将失败任务救回”。这属于证据边界，而不是将普通成功归因于介入。
+
 Baseline：
 
 - `/usr1/home/s125mdg56_02/Zetta-Embodiment/.local-repro/paired-baseline-seed22/videos/episode_agentview.mp4`
