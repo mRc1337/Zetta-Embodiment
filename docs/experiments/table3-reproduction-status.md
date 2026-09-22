@@ -73,3 +73,16 @@ GPU3-only 的 Goal-T task0--task9 baseline batch 已重新启动，使用同一 
 若仅汇总当前 GPU3 实际观测到的每个 task 的最好 episode（task0、task3 使用已验证 recovery，其余 task 使用 baseline），则为 `5/10 = 50.0%`：task0、task2、task3、task7、task8 成功。该数字是当前 single-seed observed-best 的下界/阶段性指标，不等价于论文的多 seed method-level success rate；尚未完成的 task-specific recovery 不得被默认为失败或成功。
 
 task0 recovery 的首次重试因 Role1 Codex 30 秒超时而失败；将 `--role1-timeout-s` 提高到 120 秒后，第二次重试得到 `valid + candidate_intervention=true + official success=true`。结果文件为 `.local-repro/table3-gpu3-goal-t-task0-seed1-recovery-v3-result.json`。此前一次 owner crash 产生的完整 trajectory/video/latency 仍不计分。
+
+## Recovery 完整矩阵门禁
+
+不能把 task3 的 `privileged_pick_place` bundle 直接套到其他 task：
+
+| task 类型 | 需要的 recovery primitive | 当前状态 |
+|---|---|---|
+| 抽屉开合（task0） | drawer-joint interaction | 已验证成功 |
+| 取物并放置（task3） | semantic pick-place | 已验证成功 |
+| stove 开关 | stove-joint interaction | 尚未有匹配 bundle |
+| plate/bottle/cream-cheese 放置 | 对应物体 pick-place / placement | 尚未有逐任务匹配 bundle |
+
+只有 recovery bundle 的 precondition、目标实体和 primitive 与 BDDL 任务语义一致，且官方 termination 成功，才允许更新 observed-best；因此当前 50.0% 不能继续通过“通用 bundle”乐观外推。
