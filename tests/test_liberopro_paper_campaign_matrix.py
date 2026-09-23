@@ -117,3 +117,29 @@ def test_materialized_matrix_freezes_paper_protocol_and_resumes(tmp_path: Path) 
     args.resume = True
     second = materialize_matrix(args, catalog=_catalog())
     assert second["campaigns"] == first["campaigns"]
+
+
+def test_materialized_matrix_can_freeze_codex_role1_transport(tmp_path: Path) -> None:
+    output = tmp_path / "paper-campaigns-codex"
+    args = _parser().parse_args(
+        [
+            "--output-root",
+            str(output),
+            "--repository-root",
+            str(Path(__file__).resolve().parents[1]),
+            "--runtime-python",
+            sys.executable,
+            "--code-commit",
+            "c" * 40,
+            "--role1-planner",
+            "codex",
+        ]
+    )
+
+    report = materialize_matrix(args, catalog=_catalog())
+    assert report["status"] == "prepared"
+    plan = read_json(output / "campaign-plan.json")
+    sample = read_json(output / "campaigns/goal-t/task-00/manifest.json")
+    command = sample["runtime"]["rollout_command"]
+    assert plan["runtime"]["role1_planner"] == "codex"
+    assert command[command.index("--role1-planner") + 1] == "codex"

@@ -153,6 +153,7 @@ def build_matrix_plan(
     master_seed: int,
     runtime_url: str,
     runtime_policy_id: str,
+    role1_planner: str = "api",
     latency_components: str | None = None,
 ) -> dict[str, Any]:
     """Build the deterministic, secret-free matrix contract."""
@@ -212,6 +213,7 @@ def build_matrix_plan(
         "runtime": {
             "url": runtime_url,
             "policy_id": runtime_policy_id,
+            "role1_planner": role1_planner,
             "record_latency": True,
             "latency_components": components,
         },
@@ -301,6 +303,8 @@ def _single_campaign_argv(args: argparse.Namespace, row: dict[str, Any]) -> list
         str(args.maximum_logical_slots),
         "--maximum-api-concurrency",
         str(args.maximum_api_concurrency),
+        "--role1-planner",
+        args.role1_planner,
     ]
 
 
@@ -340,6 +344,9 @@ def _audit_campaign(
     command = runtime.get("rollout_command", [])
     if "--record-latency" not in command:
         raise ValueError(f"{path}: rollout command does not record latency")
+    planner_index = command.index("--role1-planner") + 1
+    if command[planner_index] != plan["runtime"]["role1_planner"]:
+        raise ValueError(f"{path}: Role1 planner transport differs")
     return {
         "campaign_id": row["campaign_id"],
         "manifest": f"{row['campaign_root']}/manifest.json",
@@ -364,6 +371,7 @@ def materialize_matrix(
         master_seed=args.master_seed,
         runtime_url=args.runtime_url,
         runtime_policy_id=args.runtime_policy_id,
+        role1_planner=args.role1_planner,
         latency_components=args.latency_components,
     )
     if args.dry_run:
@@ -441,6 +449,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--master-seed", type=int, default=260816590)
     parser.add_argument("--runtime-url", default="http://127.0.0.1:18730")
     parser.add_argument("--runtime-policy-id", default="pi05")
+    parser.add_argument(
+        "--role1-planner",
+        choices=("api", "codex"),
+        default="api",
+        help="audited Role1 transport; model and reasoning effort remain frozen",
+    )
     parser.add_argument(
         "--latency-components",
         default=",".join(sorted(DEFAULT_LATENCY_COMPONENTS)),
