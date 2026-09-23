@@ -19,6 +19,19 @@ from zetta.utils.config import (
 MCP_TOOL_PREFIX = "mcp__zetta__"
 
 
+def normalize_api_model_id(model: str) -> str:
+    """Resolve legacy bare OpenAI model ids for Pydantic-AI.
+
+    Campaign manifests deliberately freeze the logical model name (for
+    example ``gpt-5.6-sol``).  Recent Pydantic-AI releases require an
+    explicit provider prefix, so normalize only the unambiguous OpenAI GPT
+    family at the provider boundary without changing the audited manifest.
+    """
+    if ":" not in model and model.startswith("gpt-"):
+        return f"openai-chat:{model}"
+    return model
+
+
 def add_mcp_prefix(name: str) -> str:
     """Return the namespaced MCP tool name for a bare tool name."""
     if name.startswith(MCP_TOOL_PREFIX):
@@ -168,7 +181,9 @@ def build_planner(
                 api_key=broker_api_key,
             )
         elif provider_pool is None:
-            api_model = infer_model(model, provider_factory=_provider_factory)
+            api_model = infer_model(
+                normalize_api_model_id(model), provider_factory=_provider_factory
+            )
         else:
             api_model = build_provider_pool_model(provider_pool)
         return ApiAgentLoop(

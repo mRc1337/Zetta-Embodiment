@@ -124,3 +124,18 @@ GPU3-only runtime 已重新启动并通过 gateway health check。随后对 Goal
 第一个正式样本位于 `state/attempts/g0000-rollout-000/attempt-000`，其 `bundle_sha256=null`、`candidate_intervention=false`。这是 generation 0 失败收集阶段的预期状态：recovery 应由后续 Cluster → Diagnose → Proposal → Implement → development validation 生成，而不是由 LIBERO-Pro 提供或预先手工指定。
 
 因此，上文 task0/task3 的人工冻结 bundle 结果只作为运行链路 smoke test 和 episode-level 可执行性证据，不属于论文方法生成的正式 Table 3 recovery 成绩。正式 campaign 的下一门槛仍是完成该 task 的 50 个 development rollouts，再由 supervisor 进入聚类和 recovery 生成阶段。
+
+### Goal-T/task0 正式 Zetta recovery 生成（2026-09-24）
+
+Goal-T/task0 的 50/50 development episodes 已全部完成并由 campaign ingest：50/50 `valid`、0 infra-invalid、0 official success，且每条均有 agentview、wrist、multiview 视频。50 个失败片段被聚为一个主簇（prevalence 1.0、mean severity 0.6）。
+
+Stage1 多模态诊断已完成，置信度 0.91。诊断将最早可支持的 divergence 定位到约 step 122--138 的首次把手获取窗口：两条强制检查的 compact trace 中夹爪命令始终为负值/张开，视觉证据也显示夹爪接近下层把手后未形成保持接触，后续拉动无法改变抽屉关节。
+
+Stage2 随后由 Zetta 自动生成 candidate `0f1f42e7da7473ae1efecdece67143447e630aa8f8366dfda1dc2dcb1ac2fa16`，而非人工注入：连续 96 个有效动作仍命令张开且实际 opening > 0.06 时，Critic 拒绝当前动作；Role1 最多一次调用受审计的 `semantic_joint_interact`，目标为 `wooden_cabinet_1/bottom_level`，并设置 160-action cooldown。离线 shadow replay 在 50/50 target failures 上触发，但因为 baseline 无 success controls，按 fail-closed 协议进入在线 same-seed gate，而不是直接 promotion。
+
+same-seed gate 复用已有 50 个 parent rollouts，仅排队 50 个 candidate arms。首个 candidate attempt 暴露两项基础设施问题：
+
+1. 当前 Pydantic-AI 不再接受冻结 manifest 中的裸模型名 `gpt-5.6-sol`。planner provider 边界现将裸 `gpt-*` 规范化为 `openai-chat:gpt-*`，不修改 manifest、candidate 或其内容哈希；相关回归测试通过。
+2. 规范化后 provider 成功初始化到凭据检查，但当前 worker 环境没有 `OPENAI_API_KEY`，也没有运行中的 provider broker 或 broker client env。该 attempt 继续被正确记录为 infra-invalid，不计作 candidate failure；外层串行 batch 在首错即停止，49 个 arms 未执行。
+
+当前 gate 保留 50 pending（其中失败 logical arm 的 infrastructure retry 已重新排队）、2 个 infra-invalid attempt 和全部 partial videos。继续在线验证需要恢复正式 OpenAI/provider-broker 凭据；不得用人工动作或无审计的模型替代 Role1 后把结果计入 Table 3。
