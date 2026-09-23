@@ -139,3 +139,40 @@ same-seed gate 复用已有 50 个 parent rollouts，仅排队 50 个 candidate 
 2. 规范化后 provider 成功初始化到凭据检查，但当前 worker 环境没有 `OPENAI_API_KEY`，也没有运行中的 provider broker 或 broker client env。该 attempt 继续被正确记录为 infra-invalid，不计作 candidate failure；外层串行 batch 在首错即停止，49 个 arms 未执行。
 
 当前 gate 保留 50 pending（其中失败 logical arm 的 infrastructure retry 已重新排队）、2 个 infra-invalid attempt 和全部 partial videos。继续在线验证需要恢复正式 OpenAI/provider-broker 凭据；不得用人工动作或无审计的模型替代 Role1 后把结果计入 Table 3。
+
+### Goal-T/task0 Codex Role1 正式闭环结果（2026-09-24）
+
+为避免 API key 阻塞，同时保持正式 Role1 模型与推理强度不变，重新物化了
+Codex transport 矩阵
+`.local-repro/liberopro-paper-v3-codex-s20260922`。矩阵仍为 4 settings ×
+10 tasks，固定代码 revision
+`7ef1b91a93d9f6c942435e51d0f140aa7b4c873c`、Role1
+`gpt-5.6-sol/high`、master seed `20260922`，且 Goal-T/task0 的 50 个
+development seeds 与逐 seed policy RNG 和旧矩阵一致。held-out seeds 1--20
+未被读取或执行。
+
+Goal-T/task0 generation 0 baseline 完成 50/50 valid、0 infra-invalid、0 success；
+失败均为 `horizon_incomplete`。主失败簇的 Stage1 诊断置信度为 0.88：冻结
+Pi0.5 在接触前将任务中的 bottom drawer 错误落地为 middle drawer，约 step 75
+开始移动中层关节，而底层关节保持关闭。
+
+Stage2 共自动生成并在线验证两个 Critic--Recovery bundle，均不是人工注入：
+
+| round | candidate SHA-256 | recovery | parent | candidate | causal rescue | gate |
+|---:|---|---|---:|---:|---:|---|
+| 1 | `a4e972d0f7db0659805e55ea02f40f287ecfd5325c5c9435925efbf3cebcacaa` | bottom-drawer `semantic_joint_interact` | 0/50 | 1/50 | 0 | reject |
+| 2 | `b0cfed89214cec931cb7e8fbcb5f2b952174fc6d6127bff479e24b59e92020ad` | extended-contact bottom-drawer `semantic_joint_interact` | 0/50 | 1/50 | 1 | reject |
+
+两轮均完成 50 个配对 seed、0 safety event、0 infra-invalid。冻结 same-seed
+门槛为 25/50，因此两个候选均未进入 regression 或 held-out。第二轮唯一成功为
+seed `67070`：parent 失败、candidate 成功，candidate attestation 为
+`candidate_intervention=true`，Role1 recovery 有 activated/completed 事件，且
+candidate/parent action SHA-256 不同；按 `gating.py` 的归因定义，这是 1 次
+causally attributed rescue。gate 的失败 rationale 是包含多个条件的通用 `or`
+模板；本轮实际失败原因是 1/50 未达到 25/50，而不是没有因果 rescue。
+
+第二轮 decision id 为 `gate-7e8a080395a543be1e2b`。在两轮冻结
+same-seed 预算耗尽后，campaign 正常进入 `phase=complete`，没有触碰 held-out。
+该结果证明正式 Zetta 演化链能自动生成、触发并产生一次介入救援，但该 recovery
+不满足 promotion 阈值，因此不能作为 Table 3 的已提升成功率；完整 Table 3 仍需
+继续其余 39 个 task campaign，并按正式协议汇总可 promotion 的方法结果。
