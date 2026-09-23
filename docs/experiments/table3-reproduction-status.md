@@ -104,4 +104,23 @@ task0 recovery 的首次重试因 Role1 Codex 30 秒超时而失败；将 `--rol
 
 在 revision `5b07002c2375f60a57498a6763035c27aff5de89` 上，矩阵已实际写入 `.local-repro/liberopro-paper-v2`，40/40 campaigns 状态均为 `prepared`。`campaign-plan.json` SHA-256 为 `bfa7a321a1a037a7cbcff5d1b22a48f7493306c47eef19135993d35da178f975`。
 
-GPU3-only runtime 已重新启动并通过 gateway health check。随后对 Goal-T/task0 做 development orchestrator dry-run，发现当前主机没有 `loopx` 可执行文件；`run_liberopro_development_batch.py` 在读取 experiment board 时以 `FileNotFoundError: loopx` fail closed。因此正式 episode 尚未入队，held-out seeds 仍未触碰。后续需要恢复 LoopX CLI，或使用下层 `run_campaign.py` 并补齐等价的审计记录，不能静默绕过论文协议中的可追溯性要求。
+GPU3-only runtime 已重新启动并通过 gateway health check。随后对 Goal-T/task0 做 development orchestrator dry-run，发现当前主机没有 `loopx` 可执行文件；`run_liberopro_development_batch.py` 在读取 experiment board 时以 `FileNotFoundError: loopx` fail closed。当时正式 episode 尚未入队，held-out seeds 未触碰。后续需要恢复 LoopX CLI，或使用下层 `run_campaign.py` 并补齐等价的审计记录，不能静默绕过论文协议中的可追溯性要求。
+
+### 正式 development rollout 已启动（2026-09-23）
+
+为继续推进 Zetta 自身产生 recovery 的论文闭环，现已通过同一套底层 campaign state/queue 执行 Goal-T/task0；没有使用 held-out seeds，也没有把人工 bundle 注入该 campaign。LoopX 缺失仍影响 experiment-board attestation，但不再阻止失败样本采集、严格 seed partition 和 campaign ingest。
+
+当前可核验状态：
+
+- campaign：`.local-repro/liberopro-paper-v2/campaigns/goal-t/task-00`；
+- queue：44 pending / 0 running / 6 completed / 0 failed；
+- ingest：6 accepted / 0 infra-invalid / 0 invalid envelope；
+- development seeds：17520、49157、34556、8657、13946、67070；
+- 6/6 records 均为 `valid`，当前 official success 为 0/6；
+- 6/6 失败均归类为 `horizon_incomplete`；
+- 每个 episode 均保存 agentview、wrist、multiview 三路视频及 trajectory、latency、failure segment、visual evidence；
+- GPU3 runtime health 正常，执行期间仅该 runtime compute process 占用 GPU3（约 7.7 GiB）。
+
+第一个正式样本位于 `state/attempts/g0000-rollout-000/attempt-000`，其 `bundle_sha256=null`、`candidate_intervention=false`。这是 generation 0 失败收集阶段的预期状态：recovery 应由后续 Cluster → Diagnose → Proposal → Implement → development validation 生成，而不是由 LIBERO-Pro 提供或预先手工指定。
+
+因此，上文 task0/task3 的人工冻结 bundle 结果只作为运行链路 smoke test 和 episode-level 可执行性证据，不属于论文方法生成的正式 Table 3 recovery 成绩。正式 campaign 的下一门槛仍是完成该 task 的 50 个 development rollouts，再由 supervisor 进入聚类和 recovery 生成阶段。
