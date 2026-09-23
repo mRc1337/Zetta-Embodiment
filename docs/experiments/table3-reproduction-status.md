@@ -176,3 +176,34 @@ same-seed 预算耗尽后，campaign 正常进入 `phase=complete`，没有触�
 该结果证明正式 Zetta 演化链能自动生成、触发并产生一次介入救援，但该 recovery
 不满足 promotion 阈值，因此不能作为 Table 3 的已提升成功率；完整 Table 3 仍需
 继续其余 39 个 task campaign，并按正式协议汇总可 promotion 的方法结果。
+
+### Goal-T/task1 正式 Zetta recovery 结果（2026-09-24）
+
+Goal-T/task1 的任务语言为 `Put the plate on the stove`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、5/50 official success；其余 45 个失败均为
+`horizon_incomplete`。主视觉失败簇的 Stage1 诊断置信度为 0.88：失败轨迹在
+约 step 59--78 把灰色花纹 bowl 错误落地为目标 plate，而成功对照抓取的是红边白色
+plate，因此恢复目标必须保留 plate/stove 的 BDDL 语义，不能把任意容器放上炉灶。
+
+Stage2 在冻结候选预算内产生了两个进入 live same-seed gate 的 bundle；另外两个
+候选分别因 shadow success-control false positive 为 2/5 而在离线阶段拒绝，没有
+污染在线统计：
+
+| live round | candidate SHA-256 | recovery | paired baseline | candidate | interventions | causal rescue | gate |
+|---:|---|---|---:|---:|---:|---:|---|
+| 1 | `72424679acd1b53c534b7538303ab66acb039bc8824f651319215de192e04f49` | explicit VLA execution prompt | 0/44 | 1/44 | 40 | 0 | reject |
+| 2 | `c0ea86024a2e7fe3573cb74c67eb3ea97bc2c02b4340663a672b82d2317e5c91` | wide-aperture semantic `privileged_pick_place` plate→stove | 0/44 | 1/44 | 3 | 0 | reject |
+
+这里的 paired baseline 是从 45 个 baseline failures 中扣除 smoke 使用的 1 个 seed
+后冻结得到的 44 对，并复用已有 parent records；不是把 baseline 的 5 个原生成功
+算作 recovery 成绩。两轮均为 44/44 valid、0 infra-invalid、0 safety event。
+冻结门槛是 22/44。第一轮虽然在 40 个 episode 实际介入，唯一 candidate success
+发生在无介入 episode；第二轮 3 次介入也全部失败，其唯一 success 同样没有介入，
+因此两轮的 causally attributed rescue 都是 0。
+
+两轮 decision id 分别为 `gate-d09b5e668e450c4e3062` 和
+`gate-1f956d788504b74a7295`。第二轮结束后 campaign 进入 `phase=complete`，未进入
+regression 或 held-out，held-out seeds 1--20 未触碰。该结果说明 task1 的失败诊断
+能够找到正确的对象落地问题，但当前自动生成的 Critic--Recovery 仍未把触发时机与
+成功的 plate 抓取/放置闭环对齐；按论文协议必须记为 recovery 未通过，而不能把两个
+无介入的 candidate-arm success 宣称为恢复效果。
