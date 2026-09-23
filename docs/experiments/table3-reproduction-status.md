@@ -86,3 +86,16 @@ task0 recovery 的首次重试因 Role1 Codex 30 秒超时而失败；将 `--rol
 | plate/bottle/cream-cheese 放置 | 对应物体 pick-place / placement | 尚未有逐任务匹配 bundle |
 
 只有 recovery bundle 的 precondition、目标实体和 primitive 与 BDDL 任务语义一致，且官方 termination 成功，才允许更新 observed-best；因此当前 50.0% 不能继续通过“通用 bundle”乐观外推。
+
+## 论文方法矩阵恢复（2026-09-22）
+
+已使用 `scripts/evolution/prepare_liberopro_paper_campaigns.py` 重新生成论文 §4.1 的正式矩阵 dry-run，输出位于 `/tmp/zetta-liberopro-paper-v2`：
+
+- 4 settings × 10 tasks = 40 campaigns；
+- 每 task 50 个 development seeds，排除 held-out seeds 1--20；
+- held-out 为 test-only，不参与 promotion；
+- development 共 2000 slots/round，held-out 共 800 episodes/method；
+- 官方 horizon、非空 init states、seed partition 均通过；
+- runtime policy 为 `pi05`，latency components 全量开启。
+
+该步骤曾因传入短 Git SHA 被拒，改用完整 revision `c5a56b790bf0d4cb8de954dcd80c7e67929d4574` 后通过。矩阵目前是正式实验的可恢复计划，尚未把未完成 recovery campaign 伪装成 Table 3 成绩。
