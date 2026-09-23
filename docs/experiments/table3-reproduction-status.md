@@ -99,3 +99,9 @@ task0 recovery 的首次重试因 Role1 Codex 30 秒超时而失败；将 `--rol
 - runtime policy 为 `pi05`，latency components 全量开启。
 
 该步骤曾因传入短 Git SHA 被拒，改用完整 revision `c5a56b790bf0d4cb8de954dcd80c7e67929d4574` 后通过。矩阵目前是正式实验的可恢复计划，尚未把未完成 recovery campaign 伪装成 Table 3 成绩。
+
+### 正式矩阵 materialize 与执行前检查（2026-09-23）
+
+在 revision `5b07002c2375f60a57498a6763035c27aff5de89` 上，矩阵已实际写入 `.local-repro/liberopro-paper-v2`，40/40 campaigns 状态均为 `prepared`。`campaign-plan.json` SHA-256 为 `bfa7a321a1a037a7cbcff5d1b22a48f7493306c47eef19135993d35da178f975`。
+
+GPU3-only runtime 已重新启动并通过 gateway health check。随后对 Goal-T/task0 做 development orchestrator dry-run，发现当前主机没有 `loopx` 可执行文件；`run_liberopro_development_batch.py` 在读取 experiment board 时以 `FileNotFoundError: loopx` fail closed。因此正式 episode 尚未入队，held-out seeds 仍未触碰。后续需要恢复 LoopX CLI，或使用下层 `run_campaign.py` 并补齐等价的审计记录，不能静默绕过论文协议中的可追溯性要求。
