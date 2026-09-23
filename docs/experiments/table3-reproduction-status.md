@@ -207,3 +207,39 @@ regression 或 held-out，held-out seeds 1--20 未触碰。该结果说明 task1
 能够找到正确的对象落地问题，但当前自动生成的 Critic--Recovery 仍未把触发时机与
 成功的 plate 抓取/放置闭环对齐；按论文协议必须记为 recovery 未通过，而不能把两个
 无介入的 candidate-arm success 宣称为恢复效果。
+
+### Goal-T/task2 正式 Zetta shadow 结果（2026-09-24）
+
+Goal-T/task2 的任务语言为 `put the wine bottle in the bowl`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、22/50 official success；28 个失败形成主视觉簇
+`visual-cluster-a39f47278733b390`。
+
+Stage1 诊断置信度为 0.86：代表失败不是抓取失败。两条强制失败样本都成功抓住并
+保持 wine bottle，但抓取后沿远离 bowl 的方向持续运输，随后分别在距离目标约
+0.371 m 和 0.326 m、`in_target=false` 时释放。成功对照也会短暂绕行，但会在抓取后
+约 30 steps 内反向回到 bowl；其中一条失败即使动作执行方向一致性很高仍朝 cabinet
+侧移动，因此主因归于 VLA post-grasp transport/release selection，而不是单纯的
+OSC/IK action-realization 故障。
+
+Stage2 在冻结 `candidate_round_limit=8` 内自动生成 8 个 Critic--Recovery bundle。
+全部候选都在 live 之前被 shadow success-control gate 拒绝；22 个 baseline success
+controls 上的 false positives 依次为：
+
+| candidate | false positives | rate | disposition |
+|---:|---:|---:|---|
+| 000 | 2/22 | 9.09% | shadow reject |
+| 001 | 22/22 | 100.00% | shadow reject |
+| 002 | 3/22 | 13.64% | shadow reject |
+| 003 | 6/22 | 27.27% | shadow reject |
+| 004 | 1/22 | 4.55% | shadow reject |
+| 005 | 1/22 | 4.55% | shadow reject |
+| 006 | 8/22 | 36.36% | shadow reject |
+| 007 | 10/22 | 45.45% | shadow reject |
+
+冻结门槛要求 success-control false-positive rate 为 0；因此即使 candidate-004/005
+只误触发一个成功样本，也没有放宽门槛或进入 GPU live gate。每次 rejection 都通过
+immutable candidate attempt output 写入 append-only audit artifact。候选预算耗尽后
+campaign 正常进入 `phase=complete`，optimization outcome 为
+`no_candidate_passed_primary_or_secondary`，未执行 same-seed、regression 或 held-out。
+该 task 的正式结论是 baseline 22/50，自动 recovery 未通过 shadow specificity gate；
+不能把未执行的 recovery 记作失败 episode，也不能声称产生了介入提升。
