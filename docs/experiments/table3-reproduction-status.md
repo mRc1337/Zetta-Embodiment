@@ -365,3 +365,55 @@ candidate-004、005、006、007 的 SHA-256 分别为
 正式结论是 baseline 0/50；Zetta 自动构造的 Recovery 能稳定介入并在同种子集产生最高
 48/50 causal rescues，但没有候选达到冻结的 50/50 regression 要求，因此不能宣称已
 得到可晋级或 held-out 验证通过的 recovery bundle。
+
+### Goal-T/task6 正式 Zetta recovery 结果（2026-09-25）
+
+Goal-T/task6 的任务语言为 `put the wine bottle in the bowl`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、18/50 official success；32 个失败形成主视觉簇
+`visual-cluster-a21684d14db787d9`。
+
+Stage1 诊断置信度为 0.79：成功与失败轨迹在初始 approach 阶段没有可辩护差异；最早
+支持的分歧约在 steps 55--62，即成功抓取之后。成功对照维持闭爪并把 object-to-target
+distance 从约 0.1127 m 降至 0.0080 m；失败轨迹则留在 rack/cabinet 区域，反复开合
+夹爪并放弃朝 bowl 的运输。主因因此归于 post-grasp VLA phase-control instability，
+而不是初始抓取失败。
+
+Stage2 在冻结 `candidate_round_limit=8` 内自动生成 8 个 Critic--Recovery bundle。
+candidate-001 通过 shadow 零误触发门禁并进入 live same-seed；其余候选均在 18 个
+baseline success controls 上产生 false positives：
+
+| candidate | target triggered | success-control false positives | disposition |
+|---:|---:|---:|---|
+| 000 | 31/32 | 6/18 | shadow reject |
+| 001 | 17/32 | 0/18 | live same-seed gate |
+| 002 | 32/32 | 4/18 | shadow reject |
+| 003 | 31/32 | 6/18 | shadow reject |
+| 004 | 29/32 | 4/18 | shadow reject |
+| 005 | 32/32 | 4/18 | shadow reject |
+| 006 | 32/32 | 6/18 | shadow reject |
+| 007 | 32/32 | 4/18 | shadow reject |
+
+candidate-001 SHA-256 为
+`b7fd3c1252e0dafdae2c6899aa5f55cf158bdcd45247bd4fbce8a89f8d8a4429`。其 Critic
+检测 step 100 之后持续 5 个 physical actions 的 moving-open phase abandonment；
+Recovery 由 Actor 执行一次 audited semantic `privileged_pick_place`，目标仍是权威的
+wine-bottle-to-bowl task。
+
+live same-seed gate 复用 32 个 baseline failures 作为 parent，并完成 32/32 valid
+candidate arms、0 infra-invalid、0 safety event。parent 为 0/32，candidate 为 10/32；
+正式 causal reducer 记录 19 次 candidate intervention、7 次 successful intervention、
+32 条 action-diverged candidate trajectories、7 个 causally attributed rescues，以及
+3 个 unattributed candidate wins。这是本轮正式矩阵中明确观测到的“Zetta 介入使原失败
+同种子任务成功”的效果，不是无介入的原生成功。
+
+冻结 same-seed 门槛仍要求至少 16/32 overall success。candidate-001 的 10/32 因此
+未通过，decision id 为 `gate-cae8cb0d3d994a21eb61`，没有进入 regression 或 held-out。
+后续 candidate-002--007 均在 shadow specificity gate 被拒。候选预算耗尽后 campaign
+进入 `phase=complete`，optimization outcome 为
+`no_candidate_passed_primary_or_secondary`；held-out seeds 1--20 未触碰。
+
+本 campaign 在本地保存 328 个非空 MP4（50 个 baseline episode 和 32 个 live
+candidate episode，各 4 个视频 artifact），根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/goal-t/task-06/state/`。
+视频、原始轨迹和私有 evidence 不提交 Git；文档只记录 seed-blind 聚合结果。task6 的
+正式结论是：recovery 已产生 7 个可归因 rescue，但覆盖不足以达到 promotion 门槛。
