@@ -243,3 +243,33 @@ campaign 正常进入 `phase=complete`，optimization outcome 为
 `no_candidate_passed_primary_or_secondary`，未执行 same-seed、regression 或 held-out。
 该 task 的正式结论是 baseline 22/50，自动 recovery 未通过 shadow specificity gate；
 不能把未执行的 recovery 记作失败 episode，也不能声称产生了介入提升。
+
+### Goal-T/task3 正式 Zetta recovery 结果（2026-09-24）
+
+Goal-T/task3 的任务语言为 `Open the top layer of the drawer and put the cream cheese
+inside`。generation 0 baseline 完成 50/50 valid、0 infra-invalid、0/50 official
+success；50 个失败形成主视觉簇 `visual-cluster-633e826b26f718dd`。
+
+Stage1 诊断置信度为 0.84：Pi0.5 能打开 top drawer，失败发生在随后约
+steps 125--140 的 cream-cheese acquisition。一条强制样本在距物体约 0.102 m、尚无
+contact 时提前闭合；另一条在约 0.049--0.033 m 形成 gripper contact 并命令闭合，
+但 `grasped` 和 `retained` 始终为 false。之后的 open-gripper stall 是未抓住物体的
+下游后果，不是抽屉未打开。
+
+Stage2 自动生成并完成两轮 live same-seed gate：
+
+| round | candidate SHA-256 | atomic recovery change | parent | candidate | interventions | causal rescue | gate |
+|---:|---|---|---:|---:|---:|---:|---|
+| 1 | `30280bf22fa3981097ccd1626490844f6cedf8e7c54467085fd6e5461b640341` | semantic cream-cheese→top-drawer pick-place, `grasp_pose_max_steps=32` | 0/49 | 1/49 | 8 | 0 | reject |
+| 2 | `5f4a4d7e6b22cfc4a0e8f202e12085f2816c0337fb744f459764a99da7656355` | only extend `grasp_pose_max_steps` from 32 to 64 | 0/49 | 0/49 | 8 | 0 | reject |
+
+两轮均复用 49 个 baseline parent failures，并各完成 49/49 valid candidate arms，
+0 infra-invalid、0 safety event。冻结门槛为 25/49。第一轮唯一 success 不是可归因
+介入成功；8 次真实介入均未成功。第二轮把最终接触收敛预算翻倍后仍是 8 次介入、
+0 success，说明单纯延长 grasp convergence window 没有修复 retention failure。
+
+两轮 decision id 分别为 `gate-f975e5b369ffe34933f6` 和
+`gate-92fe75054f8715a2638a`。第二轮结束后 campaign 正常进入 `phase=complete`，没有
+进入 regression 或 held-out；held-out seeds 1--20 未触碰。该 task 的正式结论是
+baseline 0/50，Zetta 自动生成并真实执行了 recovery，但两轮均无 causal rescue，
+因此不得用先前人工 task3 smoke bundle 的单 episode success 替代本次论文协议结果。
