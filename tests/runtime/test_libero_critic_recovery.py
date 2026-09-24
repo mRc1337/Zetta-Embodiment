@@ -234,6 +234,50 @@ def test_realization_feature_is_guarded_until_previous_eef_exists(
     core.close()
 
 
+def test_unavailable_activation_feature_is_inactive_not_runtime_invalid(
+    stub_rlinf: type[_StubLiberoEnv],
+) -> None:
+    core = _build_core()
+    core.reset(
+        [0],
+        ResetSpec(
+            task_id=0,
+            seed=0,
+            options={
+                "critic_rules": [
+                    {
+                        "rule_id": "late-realization-activation",
+                        "feature": "command.gripper",
+                        "operator": "gt",
+                        "threshold": 0.99,
+                        "dwell_steps": 1,
+                        "cooldown_steps": 0,
+                        "proposal": "recover",
+                        "activation_conditions": [
+                            {
+                                "feature": "command.available",
+                                "operator": "eq",
+                                "threshold": True,
+                            },
+                            {
+                                "feature": "command.realization.stalled",
+                                "operator": "eq",
+                                "threshold": True,
+                            },
+                        ],
+                    }
+                ]
+            },
+        ),
+    )
+
+    outcome = core.chunk_step([0], [_action_block(1)])[0]
+
+    assert outcome.executed_horizon == 1
+    assert outcome.info["critic_proposals"] == []
+    core.close()
+
+
 def test_interrupt_on_proposal_false_keeps_running_the_chunk(
     stub_rlinf: type[_StubLiberoEnv],
 ) -> None:

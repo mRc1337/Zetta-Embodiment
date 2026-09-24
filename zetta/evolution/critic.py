@@ -110,7 +110,15 @@ class TemporalCritic:
     def _predicate(
         cls, predicate: CriticPredicate, observation: dict[str, Any]
     ) -> bool:
-        value = resolve_feature(observation, predicate.feature)
+        # Activation predicates are guards.  A feature that has not become
+        # observable yet (for example command-realization telemetry on the
+        # first action after reset) makes the guard inactive; it must not make
+        # an otherwise valid episode infrastructure-invalid.  The primary
+        # rule feature is still resolved strictly after every guard passes.
+        try:
+            value = resolve_feature(observation, predicate.feature)
+        except KeyError:
+            return False
         if predicate.operator == "eq":
             return value == predicate.threshold
         if predicate.operator == "ne":

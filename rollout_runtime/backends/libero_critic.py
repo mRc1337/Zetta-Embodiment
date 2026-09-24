@@ -370,7 +370,14 @@ class TemporalCritic:
         Returns:
             Whether it is satisfied.
         """
-        value = resolve_feature(observation, predicate.feature)
+        # Activation predicates are availability guards as well as value
+        # checks.  Some realization features appear only after a previous EEF
+        # sample exists.  Until then the rule is inactive; primary-feature
+        # resolution remains strict once all guards pass.
+        try:
+            value = resolve_feature(observation, predicate.feature)
+        except KeyError:
+            return False
         if predicate.operator == "eq":
             return value == predicate.threshold
         if predicate.operator == "ne":

@@ -446,6 +446,43 @@ def test_temporal_critic_does_not_resolve_primary_feature_before_guard() -> None
         )
 
 
+def test_temporal_critic_treats_unavailable_activation_feature_as_inactive() -> None:
+    rule = CriticRule(
+        rule_id="guarded-by-late-realization-feature",
+        title="late realization activation",
+        feature="command.gripper",
+        operator="gt",
+        threshold=0.99,
+        dwell_steps=1,
+        cooldown_steps=0,
+        proposal="recover",
+        evidence_ids=("segment-late-activation",),
+        activation_conditions=(
+            CriticPredicate(feature="command.available", operator="eq", threshold=True),
+            CriticPredicate(
+                feature="command.realization.stalled",
+                operator="eq",
+                threshold=True,
+            ),
+        ),
+    )
+    critic = TemporalCritic((rule,))
+
+    assert critic.evaluate(
+        {"command.available": True, "command.gripper": 1.0}, step_index=1
+    ) == []
+
+    proposal = critic.evaluate(
+        {
+            "command.available": True,
+            "command.realization.stalled": True,
+            "command.gripper": 1.0,
+        },
+        step_index=2,
+    )
+    assert proposal[0]["rule_id"] == rule.rule_id
+
+
 def test_two_stage_heldout_requires_exact_paired_evidence() -> None:
     seeds = tuple(range(50))
     rng = {seed: seed + 1000 for seed in seeds}
