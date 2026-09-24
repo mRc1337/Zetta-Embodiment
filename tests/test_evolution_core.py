@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -23,7 +24,11 @@ from zetta.evolution.models import (
     EpisodeRecord,
     FailureSegment,
 )
-from zetta.evolution.queue import RolloutJob, SharedHostQueue
+from zetta.evolution.queue import (
+    RolloutJob,
+    SharedHostQueue,
+    SubprocessRolloutExecutor,
+)
 from zetta.evolution.schedule import preregister_seed_schedule
 from zetta.evolution.stages import blind_artifact_index
 from zetta.evolution.store import CampaignStore
@@ -902,3 +907,47 @@ def test_queue_counts_do_not_double_count_envelopes_and_recovers_stale(
         "completed": 0,
         "failed": 1,
     }
+
+
+def test_subprocess_executor_canonicalizes_relative_artifact_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    output = Path("campaign/attempt-000")
+    result = output / "episode_record.json"
+    heartbeat = output / "heartbeat.jsonl"
+    script = (
+        "import json, pathlib, sys; "
+        "out, result, heartbeat = map(pathlib.Path, sys.argv[1:]); "
+        "out.mkdir(parents=True, exist_ok=True); "
+        "heartbeat.write_text('alive\\n'); "
+        "result.write_text(json.dumps({'status': 'valid'}))"
+    )
+    job = RolloutJob(
+        job_id="relative-path-job",
+        campaign_root="campaign",
+        logical_id="logical-relative",
+        attempt_index=0,
+        task="task",
+        seed=1,
+        policy_rng=2,
+        bundle_sha256=None,
+        command=(
+            sys.executable,
+            "-c",
+            script,
+            str(output),
+            str(result),
+            str(heartbeat),
+        ),
+        output_dir=str(output),
+        result_file=str(result),
+        heartbeat_file=str(heartbeat),
+    )
+
+    report = SubprocessRolloutExecutor().run(job)
+
+    assert report["success"] is True
+    assert report["result"] == {"status": "valid"}
+    assert result.is_file()
+    assert not (output / output / "episode_record.json").exists()

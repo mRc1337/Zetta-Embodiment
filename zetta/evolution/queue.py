@@ -714,15 +714,27 @@ class SubprocessRolloutExecutor:
         progress_callback: Callable[[], None] | None = None,
         environment_endpoint: str | None = None,
     ) -> dict[str, Any]:
-        output_dir = Path(job.output_dir)
+        # Jobs may be created from a relative campaign root.  The subprocess
+        # runs *inside* its output directory, so passing those same relative
+        # artifact paths through unchanged would make the rollout write into
+        # ``output_dir/<relative output_dir>/...``.  Resolve every executor-
+        # owned path before changing cwd and substitute the rendered command
+        # arguments as well.  This also lets already-enqueued relative jobs be
+        # recovered without mutating their immutable queue envelopes.
+        output_dir = Path(job.output_dir).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = output_dir / "worker.stdout.log"
         started = time.time()
         last_progress = started
-        heartbeat = Path(job.heartbeat_file)
+        heartbeat = Path(job.heartbeat_file).resolve()
         last_mtime = heartbeat.stat().st_mtime if heartbeat.exists() else None
         reason: str | None = None
-        command = list(job.command)
+        path_substitutions = {
+            job.output_dir: str(output_dir),
+            job.result_file: str(Path(job.result_file).resolve()),
+            job.heartbeat_file: str(heartbeat),
+        }
+        command = [path_substitutions.get(part, part) for part in job.command]
         endpoint_token = "__ZETTA_ENV_ENDPOINT__"
         token_count = sum(part.count(endpoint_token) for part in command)
         if job.requires_environment_slot:
@@ -782,7 +794,7 @@ class SubprocessRolloutExecutor:
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait(timeout=10)
             return_code = process.wait()
-        result_path = Path(job.result_file)
+        result_path = Path(job.result_file).resolve()
         result_payload = read_json(result_path) if result_path.exists() else None
         return {
             "job_id": job.job_id,

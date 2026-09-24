@@ -462,3 +462,62 @@ LIBERO runtime 定向/回归集合共 `77 passed`。修复提交为 `1a172ba`，
 50 个 baseline、两个有效 live candidate episode 及一个 infrastructure-invalid partial
 attempt 的视频 artifacts。正式结论是 baseline 已达 98%，当前 recovery 没有增加可归因
 成功。
+
+### Goal-T/task8 正式 Zetta recovery 结果（2026-09-25）
+
+Goal-T/task8 的任务语言为 `Put the wine bottle on the plate`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、21/50 official success；29 个失败中有 26 个进入主视觉
+簇 `visual-cluster-31cb56e4ecf611a7`，其余 3 个属于不同失败子模式，没有混入当前
+recovery 的因果分母。
+
+Stage1 诊断置信度为 0.73。主子模式是 post-grasp release-phase omission：失败轨迹已把
+wine bottle 运到 plate 附近，但 gripper request 维持约 `+0.998` 的闭合状态直到 horizon；
+成功对照约在 step 116 打开夹爪，并在 step 120 左右由官方成功条件终止。medoid 另有朝
+rack/off-target 运输的次级子模式，因此诊断没有把所有失败都强行归因于同一个空间目标
+错误。
+
+Stage2 在冻结 `candidate_round_limit=8` 内生成并审计全部八个候选。candidate-004 是唯一
+通过零误触发 shadow gate 并进入 live same-seed 的候选：
+
+| candidate | target triggered | success-control false positives | disposition |
+|---:|---:|---:|---|
+| 000 | 10/26 | 3/21 | shadow reject |
+| 001 | 26/26 | 4/21 | shadow reject |
+| 002 | 19/26 | 1/21 | shadow reject |
+| 003 | 10/26 | 4/21 | shadow reject |
+| 004 | 5/26 | 0/21 | live same-seed gate |
+| 005 | 26/26 | 21/21 | shadow reject |
+| 006 | 26/26 | 21/21 | shadow reject |
+| 007 | 26/26 | 21/21 | shadow reject |
+
+candidate-004 SHA-256 为
+`299bb23c4ed3682556e9e86a11503f82bff832b0a2e6529d0462d56d68757181`。其 Critic
+检测连续 16 个 physical actions 的闭爪、高 requested translation norm、但 EEF 实际
+submillimeter motion；Recovery 只允许一次保持当前位置的 bounded release，最多 20 个
+physical actions。
+
+live same-seed gate 复用 26 个主簇 baseline failures 为 parent，并完成 26/26 valid
+candidate arms、0 safety event。parent 为 0/26，candidate 为 8/26；正式证据重算得到
+6 次 candidate intervention、6 次 successful intervention、26 条 action-diverged
+candidate trajectories、6 个 causally attributed rescues，以及 2 个 unattributed
+candidate wins。也就是说，这一任务同样明确出现了“Zetta 实际介入后把同一失败种子变为
+官方成功”的效果，并非 recovery 没有运行。
+
+冻结 same-seed 门槛要求至少 13/26 overall success，因此 8/26 未通过。decision id 为
+`gate-a6d2a9a6d5b0537ce23a`；随后 candidate-005--007 均被 shadow specificity gate
+拒绝。候选预算耗尽后 campaign 进入 `phase=complete`，optimization outcome 为
+`no_candidate_passed_primary_or_secondary`；未执行 regression 或 held-out，held-out
+seeds 1--20 未触碰。
+
+首次 candidate-004 live attempt 还暴露了一个队列路径缺陷：当 campaign root 为相对路径
+时，worker 已将 `output_dir` 设为 subprocess cwd，却又把相同相对 artifact 路径传给
+rollout，导致结果写入重复嵌套目录。该 attempt 返回 0 但预期位置没有 result，已严格记为
+1 条 infrastructure-invalid；修复在 worker 边界将 output/result/heartbeat 路径全部规范为
+绝对路径，并对已入队 command 做等值替换，无需修改不可变 queue envelope。相关队列、恢复
+与 gate 测试共 `60 passed`，attempt-001 才是该 logical arm 的唯一有效计分结果。
+
+本 campaign 在本地保存 308 个非空 MP4，根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/goal-t/task-08/state/`；包含 50 个
+baseline episode、26 个有效 live candidate episode，以及 1 个 infrastructure-invalid
+partial attempt 的视频 artifacts。正式结论是：recovery 已产生 6 个严格可归因 rescue，
+但覆盖率不足以达到 promotion 门槛。
