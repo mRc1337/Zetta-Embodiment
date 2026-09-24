@@ -317,3 +317,51 @@ rejection，未进入 live。候选预算耗尽后 campaign 进入 `phase=comple
 outcome 为 `no_candidate_passed_primary_or_secondary`；未执行 regression 或 held-out，
 held-out seeds 1--20 未触碰。该 task 的正式结论是 baseline 3/50，当前自动 recovery
 未实际介入，因此不能把 candidate arm 的 3 次原生成功解释为恢复效果。
+
+### Goal-T/task5 正式 Zetta recovery 结果（2026-09-25）
+
+Goal-T/task5 的任务语言为 `Push the cream cheese to the front of the stove`。
+generation 0 baseline 完成 50/50 valid、0 infra-invalid、0/50 official success；主失败
+模式是闭合夹爪后沿低位直线路径搬运 cream-cheese carton，路径穿过 patterned bowl，
+导致 carton 或 bowl 被卡住、倾倒或停滞。
+
+Stage1 生成的 Critic 检测连续 3 个 physical actions 中闭合夹爪的主动运输仍未上升：
+`command.translation.norm > 0.2`、`command.translation.z <= 0.05`、
+`robot.gripper.opening < 0.07`，且 episode 未终止。该 Critic 在所有进入 live gate 的
+candidate arms 中稳定介入，因而本 task 的主要剩余问题是 Recovery 的几何执行，而非
+检测器漏触发。
+
+Stage2 在冻结的 `candidate_round_limit=8` 内完成全部八个候选。前七轮先验证
+vertical-first semantic `privileged_pick_place`，其中 candidate-000--006 只原子改变
+`carry_height`；最后一轮按失败证据把 Recovery 机制替换为使用原任务指令和 5-action
+chunks 的 authoritative full-task VLA replan：
+
+| candidate | recovery change | same-seed success | regression success | disposition |
+|---:|---|---:|---:|---|
+| 000 | `carry_height=0.15 m` | 46/50 | 41/50 | regression reject |
+| 001 | `carry_height=0.20 m` | 45/50 | 46/50 | regression reject |
+| 002 | `carry_height=0.25 m` | 44/50 | 42/50 | regression reject |
+| 003 | `carry_height=0.30 m` | 39/50 | 42/50 | regression reject |
+| 004 | `carry_height=0.35 m` | 45/50 | 44/50 | regression reject |
+| 005 | `carry_height=0.40 m` | 48/50 | 44/50 | regression reject |
+| 006 | `carry_height=0.45 m` | 0/50 | not entered | same-seed reject |
+| 007 | authoritative full-task VLA replan | 0/50 | not entered | same-seed reject |
+
+same-seed 冻结门槛为 25/50；regression 要求解决全部历史回归种子，即严格 50/50。
+candidate-000--005 均通过 same-seed gate，但都未通过 regression gate。candidate-006
+证明 `0.45 m` 已越过机械臂稳定可达高度边界；candidate-007 证明重新运行同一 VLA
+策略虽然真实介入，却没有改变失败结局。最后两个候选均为 50/50 valid、50/50
+intervention、0 infra-invalid、0 success。
+
+candidate-004、005、006、007 的 SHA-256 分别为
+`527da88e4ebaaa40e758671055789cabbdd1a79162de10d5c22939bf533f6249`、
+`4d050b836e60f7d91d8bb1405f45a710bb54c69a53e2fe3a5d680a93fa318ada`、
+`f87080a31394657363004813f3fc91ed393f233d4b4f5da3cec393a4fe41e1da`、
+`664e489037b2625871432aa296124c95029c0550cd6da6b9ac63bec324876b57`。
+最后一次正式 decision id 为 `gate-64e8cd10934d6117970e`。
+
+候选预算耗尽后 campaign 正常进入 `phase=complete`，optimization outcome 为
+`no_candidate_passed_primary_or_secondary`。held-out seeds 1--20 未触碰。该 task 的
+正式结论是 baseline 0/50；Zetta 自动构造的 Recovery 能稳定介入并在同种子集产生最高
+48/50 causal rescues，但没有候选达到冻结的 50/50 regression 要求，因此不能宣称已
+得到可晋级或 held-out 验证通过的 recovery bundle。
