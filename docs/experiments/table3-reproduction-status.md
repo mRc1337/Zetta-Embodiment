@@ -521,3 +521,60 @@ rollout，导致结果写入重复嵌套目录。该 attempt 返回 0 但预期�
 baseline episode、26 个有效 live candidate episode，以及 1 个 infrastructure-invalid
 partial attempt 的视频 artifacts。正式结论是：recovery 已产生 6 个严格可归因 rescue，
 但覆盖率不足以达到 promotion 门槛。
+
+### Goal-T/task9 正式 Zetta recovery 结果（2026-09-25）
+
+Goal-T/task9 的任务语言为 `Put the cream cheese on the rack`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、0/50 official success；50 个失败全部进入主视觉簇
+`visual-cluster-6e44020055e091ce`。
+
+Stage1 诊断置信度为 0.79：失败不是初始抓取问题。代表轨迹均先成功抓取并抬起 cream
+cheese，但在约 steps 78--100 进入错误的 post-grasp phase，把物体带到 pickup-side bowl
+附近并过早张爪，随后反复进行局部 regrasp/release，直到官方 horizon 耗尽。非零 realized
+motion 与 requested direction 高度一致，因此主要 owner 是 VLA target grounding/phase
+transition，而不是控制器完全拒绝命令。
+
+冻结 `same_seed_max_rounds=2` 允许了两轮 live recovery：
+
+| candidate | shadow target trigger | recovery mechanism | interventions | candidate success | causal rescue |
+|---:|---:|---|---:|---:|---:|
+| 000 | 38/50 | 显式 keep-grasped、carry-to-rack、lower、then-open VLA subtask | 35/50 | 0/50 | 0 |
+| 001 | 50/50 | 首次过早张爪时以权威完整任务指令重启 VLA | 50/50 | 0/50 | 0 |
+
+candidate-000 和 candidate-001 SHA-256 分别为
+`9e10a234899d9e3f161d6e9b249236fd217a9a93afcd3c185fd7ac2c381689ac` 和
+`7b55ddcda448ef5e6dd73a1b592864306eeb6b4a7a5b689e935940f873f1d203`。
+两轮均完成 50/50 valid candidate arms、0 infra-invalid、0 safety event，且所有 50 条
+candidate action trajectories 都与复用的 parent 轨迹不同。也就是说 recovery 确实执行并
+改变了行为，但没有一次达到官方 BDDL success；不能把“介入”本身当成 rescue。
+
+两轮 decision id 分别为 `gate-969e542cf3607d3324fb` 和
+`gate-60f9f1c06f8328626b54`。第二轮后 campaign 以
+`same_seed_gate_iteration_budget_exhausted` 进入 `phase=complete`，没有进入 regression
+或 held-out；held-out seeds 1--20 未触碰。本地保存 600 个非空 MP4，根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/goal-t/task-09/state/`，对应 50 个
+baseline episode 和两轮各 50 个 live candidate episode 的四类视频 artifact。
+
+### Goal-T setting 阶段汇总（2026-09-25）
+
+Goal-T 的 task0--task9 generation-0 development baseline 已全部完成并达到 campaign
+终态；每个 task 均为 50/50 valid，合计 500 个有效 episode、118 个 official success，
+即 micro/macro success rate 均为 23.6%（每个 task 样本数相同）：
+
+| task | baseline success | terminal outcome |
+|---:|---:|---|
+| 0 | 0/50 | same-seed round budget exhausted |
+| 1 | 5/50 | same-seed round budget exhausted |
+| 2 | 22/50 | no candidate passed primary/secondary gates |
+| 3 | 0/50 | same-seed round budget exhausted |
+| 4 | 3/50 | no candidate passed primary/secondary gates |
+| 5 | 0/50 | same-seed round budget exhausted |
+| 6 | 18/50 | no candidate passed primary/secondary gates |
+| 7 | 49/50 | same-seed round budget exhausted |
+| 8 | 21/50 | no candidate passed primary/secondary gates |
+| 9 | 0/50 | same-seed round budget exhausted |
+
+该 setting 已在 task5、task6、task8 的正式 paired gates 中观测到可因果归因的 recovery
+rescue，但没有任何候选同时通过其冻结的 primary/secondary promotion 链，因此 Goal-T 尚无
+可进入 held-out test 的 promoted bundle。此处是 development-stage 阶段成果，不等于整张
+Table 3；LIBERO-10-S、LIBERO-10-O 和 LIBERO-10-L 的正式 10-task campaigns 仍需依次完成。
