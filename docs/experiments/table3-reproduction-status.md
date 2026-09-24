@@ -273,3 +273,47 @@ Stage2 自动生成并完成两轮 live same-seed gate：
 进入 regression 或 held-out；held-out seeds 1--20 未触碰。该 task 的正式结论是
 baseline 0/50，Zetta 自动生成并真实执行了 recovery，但两轮均无 causal rescue，
 因此不得用先前人工 task3 smoke bundle 的单 episode success 替代本次论文协议结果。
+
+### Goal-T/task4 正式 Zetta recovery 结果（2026-09-24）
+
+Goal-T/task4 的任务语言为 `Put the plate on the top of the drawer`。generation 0
+baseline 完成 50/50 valid、0 infra-invalid、3/50 official success；47 个失败形成
+主视觉簇 `visual-cluster-0b5a9d1cc633b97f`。
+
+Stage1 诊断置信度为 0.84：失败轨迹在接触前把目标 plate 错误落地为灰色花纹 bowl，
+随后抓取并把 bowl 搬向 drawer top，而红边白色 plate 保持未动。成功对照会抓取红边
+plate，说明环境控制器具备完成任务的能力，主要故障是 VLA referent grounding。
+
+Stage2 在冻结 `candidate_round_limit=8` 内自动生成 8 个 Critic--Recovery bundle。
+candidate-003 通过 shadow success-control specificity gate，进入 45 个 baseline failure
+组成的 live same-seed gate；其余候选在 shadow 阶段拒绝：
+
+| candidate | shadow success-control false positives | disposition |
+|---:|---:|---|
+| 000 | 2/3 | shadow reject |
+| 001 | 2/3 | shadow reject |
+| 002 | 1/3 | shadow reject |
+| 003 | 0/3 | live same-seed gate |
+| 004 | 3/3 | shadow reject |
+| 005 | 1/3 | shadow reject |
+| 006 | 3/3 | shadow reject |
+| 007 | 2/3 | shadow reject |
+
+candidate-003 SHA-256 为
+`8ca8866ea0abd00e27df4d2701893f22381828a665700a68f4364aa49b5878b3`。其 Critic
+要求连续 112 个 physical actions 出现 commanded gripper closure、非完全闭合 gripper、
+reward 0 且 episode active，Recovery 通过 VLA 执行对比指令：抓取 red-ringed plate，
+而不是 patterned bowl，并放到 drawer top。shadow 对 45 个 target failures 没有触发，
+因此只以 inconclusive/online-gate-required 进入 live。
+
+live gate 完成 45/45 valid candidate arms、0 infra-invalid、0 safety event；parent 为
+0/45，candidate 为 3/45，但 45 条 candidate arms 全部
+`candidate_intervention=false`。因此 3 个 candidate wins 都是无介入原生成功，causal
+rescue 为 0。正式 decision id 为 `gate-5997b1f722b724cea3fd`，拒绝理由是
+`candidate never changed the failed parent action trajectory`，不是成功率门槛不足。
+
+随后 candidate-004--007 均按冻结 false-positive 阈值 0 写入 append-only shadow
+rejection，未进入 live。候选预算耗尽后 campaign 进入 `phase=complete`，optimization
+outcome 为 `no_candidate_passed_primary_or_secondary`；未执行 regression 或 held-out，
+held-out seeds 1--20 未触碰。该 task 的正式结论是 baseline 3/50，当前自动 recovery
+未实际介入，因此不能把 candidate arm 的 3 次原生成功解释为恢复效果。
