@@ -417,3 +417,48 @@ candidate episode，各 4 个视频 artifact），根目录为
 `.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/goal-t/task-06/state/`。
 视频、原始轨迹和私有 evidence 不提交 Git；文档只记录 seed-blind 聚合结果。task6 的
 正式结论是：recovery 已产生 7 个可归因 rescue，但覆盖不足以达到 promotion 门槛。
+
+### Goal-T/task7 正式 Zetta recovery 结果（2026-09-25）
+
+Goal-T/task7 的任务语言为 `Turn off the stove`。generation 0 baseline 完成 50/50
+valid、0 infra-invalid、49/50 official success；唯一失败形成视觉簇
+`visual-cluster-33f3380b39fb8702`。
+
+Stage1 诊断置信度为 0.81：失败与成功对照在 sampled step 50 出现最早差异。失败策略
+把 gripper request 从 open 切到近全闭合，随后在 steps 74--78 的接触中把 stove
+actuate 到可见红色/on 状态，command realization 随后显著下降并持续到 step 310；成功
+对照保持 open-contact 操作并约在 step 52 终止。因为只有一个失败样本，该诊断明确标为
+episode-level hypothesis，而不是总体规律。
+
+Stage2 共使用 3 个 candidate rounds；冻结 `same_seed_max_rounds=2` 在两轮 live gate
+后先于 8 轮总候选预算耗尽：
+
+| candidate | shadow FP | recovery | parent | candidate | interventions | causal rescue | disposition |
+|---:|---:|---|---:|---:|---:|---:|---|
+| 000 | 14/49 | open-contact retry draft | -- | -- | -- | -- | shadow reject |
+| 001 | 0/49 | open gripper 5 steps + gripper-suppressed open-contact VLA retry | 0/1 | 0/1 | 1 | 0 | same-seed reject |
+| 002 | 0/49 | authoritative full-task VLA replan through remaining horizon | 0/1 | 1/1 | 0 | 0 | same-seed reject |
+
+candidate-001 和 candidate-002 SHA-256 分别为
+`a2b6e6ce211f5983d4a9d3fc8ddce2c46abec3c2ea0a2dcdc9c7c9ab252da3f6` 和
+`0bcec081596bbfd12195f552cf7140d9d4603c979abf8708003e49ab2198b964`。
+第一轮真实执行了 Critic--Role1--Recovery，action trajectory 发生变化但任务仍失败；
+第二轮 candidate arm 虽然成功且 action digest 与 parent 不同，
+`candidate_intervention=false`，因此正式 reducer 将其记为 1 个 unattributed win，而不是
+recovery rescue。两轮 decision id 分别为 `gate-688d08322d929854a0b0` 和
+`gate-9dbc0fab46d225cfef8f`。
+
+candidate-001 的首次 live attempt 暴露一个 Harness runtime 缺陷：首个 action 尚未
+产生 `command.realization.stalled` 时，activation predicate 抛出 feature-unavailable，
+造成 1 条 infrastructure-invalid。修复使“尚不可观察的 activation feature”按 inactive
+处理，同时所有 guards 成立后的 primary feature 仍严格 fail closed；canonical 与
+LIBERO runtime 定向/回归集合共 `77 passed`。修复提交为 `1a172ba`，attempt-000 被完整
+保留，attempt-001 才是唯一计分 arm。
+
+第二轮后 campaign 以 `same_seed_gate_iteration_budget_exhausted` 进入
+`phase=complete`，未进入 regression 或 held-out；held-out seeds 1--20 未触碰。本地
+保存 211 个非空 MP4，根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/goal-t/task-07/state/`；其中包括
+50 个 baseline、两个有效 live candidate episode 及一个 infrastructure-invalid partial
+attempt 的视频 artifacts。正式结论是 baseline 已达 98%，当前 recovery 没有增加可归因
+成功。
