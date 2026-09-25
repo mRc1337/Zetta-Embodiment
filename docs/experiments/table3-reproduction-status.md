@@ -578,3 +578,39 @@ Goal-T 的 task0--task9 generation-0 development baseline 已全部完成并达�
 rescue，但没有任何候选同时通过其冻结的 primary/secondary promotion 链，因此 Goal-T 尚无
 可进入 held-out test 的 promoted bundle。此处是 development-stage 阶段成果，不等于整张
 Table 3；LIBERO-10-S、LIBERO-10-O 和 LIBERO-10-L 的正式 10-task campaigns 仍需依次完成。
+
+### LIBERO-10-S/task0 正式 Zetta recovery 结果（2026-09-25）
+
+LIBERO-10-S/task0 的任务语言为
+`put both the alphabet soup and the tomato sauce in the basket`。generation 0 baseline
+完成 50/50 valid、0 infra-invalid、0/50 official success。49 个可用于配对门控的失败
+进入主视觉簇 `visual-cluster-5833e260e427846c`；预留的 smoke seed 不重复计入正式配对。
+
+Stage1 多模态诊断置信度为 0.84。代表轨迹能先把 tomato sauce 放入 basket，官方
+predicate progress 达到 0.5，但随后没有形成针对 alphabet soup 的闭爪、接触、抓取或
+保持序列，直到 step 530 horizon 耗尽。因此主因归于 VLA 在完成第一个物体后的 compound
+instruction 子任务切换/action selection，而不是第一个物体的放置失败。
+
+冻结 `same_seed_max_rounds=2` 允许两轮 live recovery：
+
+| candidate | SHA-256 | recovery mechanism | interventions | candidate success | causal rescue | gate |
+|---:|---|---|---:|---:|---:|---|
+| 000 | `c0082bee7c6634371e689838b4a5114f2bf9358281f4e9ec354fb511fdde2ee9` | 触发后以 remaining-object VLA instruction 重启第二子任务 | 49/49 | 0/49 | 0 | reject |
+| 001 | `263c16523f004adbf71bc67d79e6fb94535c09df801929424fefc653322f5741` | 保留触发器，改用权威完整任务指令并允许 64×5 actions 闭环重规划 | 46/49 | 0/49 | 0 | reject |
+
+两轮均完成 49/49 valid candidate arms、0 infra-invalid、0 safety event。冻结门槛要求至少
+25/49 overall success；两轮均为 0/49，因而没有进入 regression 或 held-out。正式
+decision id 分别为 `gate-f9aa130006c085e3e596` 和
+`gate-ea4d381f5c4b5cb4db69`。第二轮之后 campaign 以
+`same_seed_gate_iteration_budget_exhausted` 进入 `phase=complete`，held-out seeds
+1--20 未触碰。
+
+这个结果区分了“recovery 实际执行”和“recovery 成功”：两轮共 95 次候选介入，动作被
+恢复逻辑接管，但没有一次满足官方 BDDL 目标，因此严格的 causally attributed rescue 为
+0。完整任务 prompt 相比 remaining-object prompt 也没有改善成功率，说明失败不能只靠语言
+重提示修复；当前 VLA 仍没有形成可执行的 alphabet-soup acquisition/transport/place 闭环。
+
+本 campaign 在本地保存 592 个非空 MP4，根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/libero-10-s/task-00/state/`，覆盖
+50 个 baseline episode 与两轮各 49 个 live candidate episode 的 episode/visual-evidence
+视频。视频、trajectory 和私有 evidence 不提交 Git；文档仅提交 seed-blind 聚合结果。
