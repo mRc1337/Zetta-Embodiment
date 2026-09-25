@@ -614,3 +614,51 @@ decision id 分别为 `gate-f9aa130006c085e3e596` 和
 `.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/libero-10-s/task-00/state/`，覆盖
 50 个 baseline episode 与两轮各 49 个 live candidate episode 的 episode/visual-evidence
 视频。视频、trajectory 和私有 evidence 不提交 Git；文档仅提交 seed-blind 聚合结果。
+
+### LIBERO-10-S/task1 正式 Zetta recovery 结果（2026-09-26）
+
+LIBERO-10-S/task1 的任务语言为
+`put both the cream cheese box and the butter in the basket`。generation 0 baseline 完成
+50/50 valid、0 infra-invalid、14/50 official success；36 个失败中，主视觉簇
+`visual-cluster-3fdf16d06b702a93` 提供 30 个冻结 same-seed parent failures。Stage1 诊断置信度
+为 0.58，结论保持 inconclusive；最强假设是 VLA 的语义目标选择和 compound-task 子任务排序
+不稳定，但晚期 grasp retention/containment 失败仍是竞争解释。因诊断未达常规阈值，本 campaign
+使用审计的 provisional authorization `provisional-26042719082375a656b3698f`；它仍要求至少
+1/30 same-seed 改善、严格因果归因、完整 50-seed regression，且 held-out 不得被当作无偏
+结果。
+
+八轮 live 候选的冻结 gate 结果如下；`rescue` 仅计 parent failure、candidate success、动作
+轨迹分叉且 intervention attestation 成立的严格因果救援：
+
+| candidate SHA-256 前缀 | same-seed success | causal rescue | regression candidate / parent | regression wins / losses | 结论 |
+|---|---:|---:|---:|---:|---|
+| `af7cb68d9737` | 9/30 | 5 | 13/50 / 14/50 | 10 / 11 | regression reject |
+| `8f799294cb3f` | 9/30 | 4 | 14/50 / 14/50 | 9 / 9 | 未逐个保住历史成功，reject |
+| `c92067ef9e7a` | 5/30 | 0 | 未运行 | -- | same-seed reject |
+| `adfab473aaa8` | 3/30 | 2 | 13/50 / 14/50 | 9 / 10 | regression reject |
+| `ffe956ea915a` | 4/30 | 3 | 13/50 / 14/50 | 9 / 10 | regression reject |
+| `dcbbde40db00` | 4/30 | 1 | 8/50 / 14/50 | 4 / 10 | regression reject |
+| `63f7eb20d809` | 4/30 | 2 | 10/50 / 14/50 | 5 / 9 | regression reject |
+| `01f5ef5ef63c` | 1/30 | 0 | 未运行 | -- | same-seed reject |
+
+对应 gate decision id 依次为：candidate 0
+`gate-be01c73392009b9e2615` / `gate-7014ac0735b30b6705c1`，candidate 1
+`gate-3efa07507103b08fbe3c` / `gate-5d59acd4da7d2f2db9a6`，candidate 2
+`gate-097b18192707e01dab13`，candidate 3 `gate-2df70a2890304f3c1996` /
+`gate-f1282064b469c8bc8f8f`，candidate 4 `gate-878036c8eec70b674981` /
+`gate-c25131f6ca3a4c0e1dd8`，candidate 5 `gate-5b2ed6d7c143763a4a67` /
+`gate-b700fee0de70a5deab83`，candidate 6 `gate-451c09bd272ff28e0e22` /
+`gate-fe28d7ceaecabfdf97f8`，candidate 7 `gate-fc69af3c6dba7e469fe1`。
+
+这些结果证明 recovery 确实起作用：六个候选至少产生一次严格因果救援，累计观察到 17 次
+causally attributed rescues（各候选同一冻结集合上的结果，不作为互斥 episode 相加成成功率）。
+失败点是 promotion specificity，而不是“没有介入”：通过 same-seed 的候选在完整回归中都会
+破坏部分 baseline 成功种子；即使 candidate 1 总成功数同为 14/50，也发生 9 wins 和 9 losses，
+不能视为保住历史成功。
+
+第八轮后 campaign 以 `same_seed_gate_iteration_budget_exhausted` 进入 `phase=complete`，没有
+promoted bundle，也没有执行 held-out；held-out seeds 1--20 始终未触碰。本地保存 2360 个
+非空 MP4，根目录为
+`.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/libero-10-s/task-01/state/`，覆盖 baseline、
+八轮 same-seed 和六轮 regression 的 episode/visual-evidence artifacts。视频、trajectory、
+privileged evidence 与 provider/worker 日志均不提交 Git；文档只记录聚合、seed-blind 结果。
