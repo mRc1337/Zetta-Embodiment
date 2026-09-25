@@ -80,8 +80,12 @@ class PairedGateRunner:
     ) -> None:
         if not worker_hosts:
             raise ValueError("at least one gate worker host is required")
-        self.store = CampaignStore(campaign_root)
-        self.queue = SharedHostQueue(queue_root)
+        # Freeze one canonical spelling for all paths embedded in rollout jobs.
+        # Without this, a campaign first opened through a relative path produces
+        # jobs that later fail the frozen-plan equality check when the same
+        # campaign is resumed through an absolute path.
+        self.store = CampaignStore(Path(campaign_root).resolve())
+        self.queue = SharedHostQueue(Path(queue_root).resolve())
         self.worker_hosts = tuple(worker_hosts)
         if gate_kind not in {"same_seed", "regression", "heldout", "heldout_20"}:
             raise ValueError(f"unsupported paired gate kind: {gate_kind}")

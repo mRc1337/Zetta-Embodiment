@@ -4655,11 +4655,26 @@ def _materialize_multimodal_cluster_review(
             _evolution_policy(store)["cluster_max_artifact_reads"]
         ),
     )
-    review = agent.review_clusters(
-        clusters=agent_clusters,
-        artifact_index=artifact_index,
-        task_contract=_authoritative_task_contract(store),
+    agent_stage_root = (
+        store.root / "agents" / "cluster" / "multimodal-cluster-review"
     )
+    agent_output_path = agent_stage_root / "output.json"
+    agent_context_path = agent_stage_root / "context.json"
+    if agent_output_path.is_file() and agent_context_path.is_file():
+        # The provider result and its context are committed before the derived
+        # multimodal report.  A process may therefore stop in that narrow
+        # window.  Reuse the immutable, hash-bound result instead of invoking
+        # the non-deterministic provider again and colliding with output.json.
+        review = read_json(agent_output_path)
+        context = read_json(agent_context_path)
+        if context.get("output_sha256") != canonical_sha256(review):
+            raise ValueError("multimodal cluster agent output hash mismatch")
+    else:
+        review = agent.review_clusters(
+            clusters=agent_clusters,
+            artifact_index=artifact_index,
+            task_contract=_authoritative_task_contract(store),
+        )
     raw_by_alias = {value: key for key, value in aliases["segment_id"].items()}
     segment_by_id = {
         segment.segment_id: segment

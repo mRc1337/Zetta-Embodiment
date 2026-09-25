@@ -222,6 +222,79 @@ def test_multimodal_cluster_review_binds_manifest_environment(
     assert _FakeVisualClusterAgent.seen_environment_name == "robocasa"
 
 
+def test_multimodal_cluster_review_recovers_committed_agent_output(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "visual-cluster-recovery"
+    store = CampaignStore(root)
+    store.initialize(_manifest())
+    store.record_episode(
+        EpisodeRecord(
+            episode_id="episode-visual",
+            logical_id="g0000-rollout-000",
+            generation=0,
+            seed=7,
+            policy_rng=70,
+            bundle_sha256=None,
+            status="valid",
+            success=False,
+            started_at="2026-01-01T00:00:00+00:00",
+            finished_at="2026-01-01T00:00:01+00:00",
+            elapsed_s=1.0,
+            artifact_index={"overview": "overview.png"},
+            failure_segment=FailureSegment(
+                segment_id="segment-visual",
+                episode_id="episode-visual",
+                failure_class="stall",
+                stage="engage",
+                tool="robocasa.vla.groot",
+                summary="rack did not move",
+                earliest_divergence_step=2,
+                start_step=1,
+                end_step=3,
+            ),
+        )
+    )
+    deterministic = analyze_failures(root)
+    artifact_index, aliases = _agent_artifact_context(store)
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle.CodexStageAgent", _FakeVisualClusterAgent
+    )
+    expected = _materialize_multimodal_cluster_review(
+        store=store,
+        deterministic_report=deterministic,
+        artifact_index=artifact_index,
+        aliases=aliases,
+        model="test",
+    )
+    agent_root = root / "agents" / "cluster" / "multimodal-cluster-review"
+    review = expected["visual_review"]
+    atomic_write_json(agent_root / "output.json", review, overwrite=False)
+    atomic_write_json(
+        agent_root / "context.json",
+        {"output_sha256": canonical_sha256(review)},
+        overwrite=False,
+    )
+    (root / "analysis" / "failure_clusters.multimodal.json").unlink()
+
+    class _UnexpectedAgentCall(_FakeVisualClusterAgent):
+        def review_clusters(self, **values: object) -> dict[str, object]:
+            raise AssertionError("committed agent output should be reused")
+
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle.CodexStageAgent", _UnexpectedAgentCall
+    )
+    recovered = _materialize_multimodal_cluster_review(
+        store=store,
+        deterministic_report=deterministic,
+        artifact_index=artifact_index,
+        aliases=aliases,
+        model="test",
+    )
+
+    assert recovered == expected
+
+
 def test_first_candidate_resumes_hashed_diagnosis_context(tmp_path: Path) -> None:
     root = tmp_path / "hashed-diagnosis"
     store = CampaignStore(root)

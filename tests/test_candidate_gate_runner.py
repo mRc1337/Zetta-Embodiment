@@ -315,6 +315,36 @@ def _setup(
     return root, queue_root, store, candidate
 
 
+def test_gate_runner_canonicalizes_relative_job_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, queue_root, _, candidate = _setup(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CandidateGateRunner(
+        campaign_root=root.relative_to(tmp_path),
+        queue_root=queue_root.relative_to(tmp_path),
+        worker_hosts=("host-a",),
+        candidate_sha256=candidate.sha256,
+    )
+
+    assert runner.store.root == root.resolve()
+    assert runner.queue.root == queue_root.resolve()
+    plan = runner.prepare()
+    expected = runner._expected_arms(plan)
+    logical_id = next(iter(expected))
+    job = runner._build_job(
+        plan=plan,
+        logical_id=logical_id,
+        expected=expected[logical_id],
+        attempt_index=0,
+    )
+    assert Path(job.campaign_root).is_absolute()
+    assert Path(job.output_dir).is_absolute()
+    assert Path(job.result_file).is_absolute()
+    assert Path(job.heartbeat_file).is_absolute()
+
+
 def _pending_jobs(queue: SharedHostQueue) -> list[RolloutJob]:
     jobs = []
     for path in sorted((queue.root / "pending").glob("*/*.json")):
