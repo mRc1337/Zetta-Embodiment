@@ -1090,3 +1090,12 @@ development `(task, logical ID, seed, policy RNG)`，与 queue 四类 envelope
 logical ID、重复 job ID 或 seed/RNG 偏差。审计时 115 条 completed
 全部 `status=valid`，三路视频、延迟摘要及纯 VLA 无工具事件审计均无
 缺口；其余仍在 generation-0 baseline，不能报告任何 held-out SR。
+
+候选阶段前的凭据预检：仓库自带的
+`probe_codex_stage_runtime.py` 使用与 v6 manifest 相同的
+`gpt-5.6-sol` / `high` 跑了一次无工具 nonce 调用，报告
+`passed=true`（nonce、持久 thread ID、原始流解析和终止事件检查
+均通过），耗时约 12.4 秒，未返回 401。审计报告在本地忽略目录
+`.local-repro/liberopro-paper-v6-matrix-20260927/preflight/codex-stage-20260927-1230/report.json`。
+这只验证了当前 Codex 调用链，不保证未来凭据不会过期，也不代替
+正式 Role1/candidate rollout 的有效性审计。
