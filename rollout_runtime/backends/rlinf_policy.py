@@ -42,7 +42,9 @@ inherently so), called via ``asyncio.to_thread`` by
 from __future__ import annotations
 
 import dataclasses
+import threading
 import time
+from contextlib import nullcontext
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -297,6 +299,9 @@ class RlinfPolicyCore:
         self.error_count = 0
         self.padded_request_count = 0
         self._model_version = self.config.model_version
+        # torch's RNG is process-global; seeded fork_rng must not overlap
+        # another inference running in an asyncio.to_thread worker.
+        self._inference_lock = threading.RLock()
 
     # ------------------------------------------------------------ Protocol attributes
 
@@ -557,6 +562,42 @@ class RlinfPolicyCore:
 
         from zetta.compat.tensors import to_tensor
 
+        # The harness supplies a stable per-policy-call seed. OpenPi samples
+        # diffusion/flow noise from torch's process-global RNG, so batching
+        # seeded requests would otherwise make an action depend on unrelated
+        # requests and their order. Execute seeded requests independently.
+        if len(requests) > 1 and any(
+            request.inference_parameters.get("seed") is not None
+            or request.inference_parameters.get("noise_seed") is not None
+            for request in requests
+        ):
+            blocks: list[np.ndarray] = []
+            timings: list[dict[str, float]] = []
+            for request in requests:
+                action, latency = self._predict_batch([request])
+                blocks.append(action[0])
+                if latency is not None:
+                    timings.append(latency)
+            total_latency = (
+                {key: sum(row.get(key, 0.0) for row in timings) for key in timings[0]}
+                if timings
+                else None
+            )
+            return np.stack(blocks), total_latency
+
+        parameters = requests[0].inference_parameters
+        seed = parameters.get("seed", parameters.get("noise_seed"))
+        if seed is not None:
+            seed = int(seed)
+            if not 0 <= seed <= 0x7FFFFFFF:
+                raise ValueError("policy seed must be in [0, 2^31-1]")
+            if (
+                parameters.get("seed") is not None
+                and parameters.get("noise_seed") is not None
+                and int(parameters["seed"]) != int(parameters["noise_seed"])
+            ):
+                raise ValueError("seed and noise_seed disagree")
+
         record_latency = any(
             bool(request.inference_parameters.get("record_latency", False))
             for request in requests
@@ -603,7 +644,18 @@ class RlinfPolicyCore:
         if record_latency and torch.cuda.is_available():
             torch.cuda.synchronize()
         model_started = time.perf_counter()
-        with torch.no_grad():
+        rng_scope = (
+            torch.random.fork_rng(
+                devices=[torch.cuda.current_device()] if torch.cuda.is_available() else []
+            )
+            if seed is not None
+            else nullcontext()
+        )
+        with self._inference_lock, rng_scope, torch.no_grad():
+            if seed is not None:
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
             actions, _result = self.model.predict_action_batch(
                 env_obs=payload, **self._predict_kwargs(requests)
             )

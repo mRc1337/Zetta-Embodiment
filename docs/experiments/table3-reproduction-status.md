@@ -1,6 +1,6 @@
 # LIBERO-Pro Table 3 复现状态
 
-更新时间：2026-09-22
+更新时间：2026-09-27
 
 ## 结论
 
@@ -676,7 +676,7 @@ privileged evidence 与 provider/worker 日志均不提交 Git；文档只记录
 | `934f0a3b9a55` | 原始语义 pick-place | 37/49 / 0/49 | 37/37 | 41/50 / 0/50 | regression reject |
 | `76f6e9c026f8` | 仅设 `vertical_first_carry=true` | 41/49 / 0/49 | 41/41 | 3/4 observed / 0/50 parent；46 未执行 | regression early reject |
 | `d10b51cf69c8` | 保留 vertical-first，仅将 `grasp_confirm_steps` 从 4 增至 8 | 37/49 / 0/49 | 37/37 | 4/5 observed / 0/50 parent；45 未执行 | regression early reject |
-| `62a611fae41d` | 保留 recovery，将空抓 critic 的 dwell 从 4 降至 1 | 进行中 | 进行中 | 未运行 | same-seed 进行中 |
+| `62a611fae41d` | 保留 recovery，将空抓 critic 的 dwell 从 4 降至 1 | 仅部分完成 | 不可判定 | 未运行 | 因 runtime seed 缺陷终止；不计正式 paired 结果 |
 
 第一候选的 same-seed decision 为 `gate-c7443f46a27e9d5b1bb3`；其 regression decision
 为 `gate-3788dcdb7ee6f3e7610e`。虽然第一候选在 50 个开发种子中救援 41 次、无安全事件，
@@ -720,3 +720,18 @@ Stage2 refinement：当 regression 失败样本没有 intervention 时，下一�
 覆盖，而不能强制仅修改 recovery。该判断只使用正式 regression plan 与有效 episode
 ledger；相关 70 项测试通过。第四候选 `62a611fae41d...` 已进入同种子 gate，其 dwell=1
 假设针对短暂空抓，但不能确定覆盖上述完全无闭合命令的反例，仍须按正式 gate 验证。
+
+协议有效性复核（2026-09-27）：v3 的 OpenPi runtime 实际忽略了 harness 传入的逐次
+`policy_rng` seed。同一 development seed 92471 的第三候选 same-seed 与 regression arm
+具有相同初始观测、相同 policy_rng 和相同 bundle，但第 11 步首次 VLA 动作已经不同
+（最大绝对差 0.03085）；前者触发介入并成功，后者没有触发介入且失败。因此 v3 的
+“same-seed”及严格因果归因仅是旧 harness 的名义判定，不能作为可信配对反事实或
+Table 3 成绩。第四候选未完成的 44 个 job 已可恢复地归档，v3 campaign 标记为
+`runtime_policy_seed_not_applied`，held-out seeds 1--20 未触碰。
+
+现已在 `rlinf_policy` 后端将每次推理 seed 作用于 OpenPi 的 torch 噪声采样，并隔离
+同批其他请求的随机状态；单元测试和 GPU3 在线复测均通过。在线复测在同一环境观测
+上依次使用 seed A、seed B、seed A：两次 A 的完整 `(5, 7)` 动作块 SHA-256 完全
+一致，B 不同。接下来必须在全新 campaign 中重跑 baseline、same-seed、按来源失败簇
+的 historical regression，最后才可使用预留 held-out seeds；v3 的 401 重试虽已恢复
+有效运行，却不能修复上述随机种子缺陷。

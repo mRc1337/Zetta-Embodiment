@@ -280,6 +280,53 @@ def test_infer_batch_returns_one_response_per_request(stub_model: _StubModel) ->
     core.close()
 
 
+def test_seeded_openpi_noise_is_replayable_and_batch_independent(
+    stub_model: _StubModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fixed policy-call seed must not depend on prior or co-batched calls."""
+    import torch
+
+    def sampled_actions(
+        env_obs: dict[str, Any], **_kwargs: Any
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        batch = int(np.asarray(env_obs["main_images"]).shape[0])
+        return torch.rand(batch, CHUNK, ACTION_DIM), {}
+
+    monkeypatch.setattr(stub_model, "predict_action_batch", sampled_actions)
+    core = _core()
+    core.load()
+
+    def request(index: int, seed: int) -> Any:
+        return _request(
+            index, inference_parameters={"mode": "eval", "seed": seed}
+        )
+
+    first = core.infer_batch([request(1, 123)])[0]
+    torch.rand(100)
+    replay = core.infer_batch([request(1, 123)])[0]
+    mixed = core.infer_batch([request(1, 123), request(2, 456)])
+    other = core.infer_batch([request(2, 456)])[0]
+    assert first.error is replay.error is mixed[0].error is None
+    assert mixed[1].error is other.error is None
+    np.testing.assert_array_equal(
+        payload_module.decode_payload(first.actions),
+        payload_module.decode_payload(replay.actions),
+    )
+    np.testing.assert_array_equal(
+        payload_module.decode_payload(first.actions),
+        payload_module.decode_payload(mixed[0].actions),
+    )
+    np.testing.assert_array_equal(
+        payload_module.decode_payload(other.actions),
+        payload_module.decode_payload(mixed[1].actions),
+    )
+    assert not np.array_equal(
+        payload_module.decode_payload(first.actions),
+        payload_module.decode_payload(other.actions),
+    )
+    core.close()
+
+
 def test_infer_batch_returns_opt_in_component_latency(stub_model: _StubModel) -> None:
     core = _core()
     core.load()
