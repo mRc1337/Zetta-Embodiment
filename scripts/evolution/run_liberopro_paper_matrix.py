@@ -50,7 +50,13 @@ def _campaigns(matrix_root: Path) -> list[tuple[dict[str, Any], Path]]:
     return result
 
 
-def sweep(matrix_root: Path, queue_root: Path, *, worker_host: str) -> dict[str, Any]:
+def sweep(
+    matrix_root: Path,
+    queue_root: Path,
+    *,
+    worker_host: str,
+    paused_tasks: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     counts: dict[str, int] = {}
     errors: list[dict[str, str]] = []
     actions: dict[str, int] = {}
@@ -62,6 +68,13 @@ def sweep(matrix_root: Path, queue_root: Path, *, worker_host: str) -> dict[str,
         phase = CampaignPhase(store.state()["phase"])
         if phase == CampaignPhase.COMPLETE:
             counts["complete"] = counts.get("complete", 0) + 1
+            continue
+        if row["task"] in paused_tasks:
+            # Leave this campaign's state and existing queue envelopes
+            # untouched until its infrastructure is healthy. Jobs already
+            # placed under pending/paused_* remain known to the queue.
+            counts[phase.value] = counts.get(phase.value, 0) + 1
+            actions["paused_task"] = actions.get("paused_task", 0) + 1
             continue
         supervisor = EvolutionSupervisor(
             campaign_root=state_root,
@@ -119,22 +132,36 @@ def main() -> int:
         help="replay campaign state root; release paused matrix task2 jobs only after it completes",
     )
     parser.add_argument("--poll-s", type=float, default=60.0)
+    parser.add_argument(
+        "--pause-task",
+        action="append",
+        default=[],
+        help="exact campaign task identifier to skip during sweeps (repeatable)",
+    )
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     if args.poll_s < 0 or not args.worker_host:
         parser.error("poll interval and worker host must be valid")
     root = args.matrix_root.resolve()
     queue = (args.queue_root or root / "queue").resolve()
+    paused_tasks = frozenset(args.pause_task)
+    known_tasks = {row["task"] for row, _ in _campaigns(root)}
+    if unknown := paused_tasks - known_tasks:
+        parser.error(f"unknown paused matrix task(s): {sorted(unknown)}")
     while True:
         released = (
             resume_paused_task2(
                 queue, args.resume_paused_task2_after.resolve(), worker_host=args.worker_host
             )
             if args.resume_paused_task2_after is not None
+            and "libero_10_swap/task2" not in paused_tasks
             else 0
         )
-        report = sweep(root, queue, worker_host=args.worker_host)
+        report = sweep(
+            root, queue, worker_host=args.worker_host, paused_tasks=paused_tasks
+        )
         report["resumed_task2_jobs"] = released
+        report["paused_tasks"] = sorted(paused_tasks)
         print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
         if report["phases"].get("complete", 0) == 40:
             return 0

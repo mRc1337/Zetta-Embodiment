@@ -827,7 +827,7 @@ task2 约 43 个待运行 job 原样移入各自 `queue/pending/paused_io/`，�
 task2 create/reset/close 复核全部返回 `Ok`，runtime 不需重启。基础设施补丁
 将 latency event 的 durability barrier 延至 episode finalize，将完整轨迹按批
 写入并同步，并让 watchdog 识别同一 attempt 目录下视频、轨迹、visual evidence
-的实际文件更新；它不改 VLA、recovery、随机种子、冻结 plan 或评分门限。相关
+的实际文件更新；它不改 VLA、recovery、随机种子、冻结 plan 或评分门限。
 81 项相关测试通过，补丁应用前的正式结果仍留存以供审计。
 
 基础设施修订代码提交为 `0ed1fd3`，与 campaign manifest 原始
@@ -845,3 +845,11 @@ attempt-1 也在 154 秒内完成，`status=valid`、official success=false、
 有效负样本，不是恢复成功。此处为冻结 campaign 启动后的基础设施实施修订；不能把之前
 infra-invalid 的 attempt 追认成 valid，也不能在未完成 40-task held-out 前
 汇报 Table 3 成绩。
+
+矩阵继续执行时，旧 task5 watchdog 超时留下的同任务 env session 尚未释放；
+task5 下一条 baseline attempt-0 因 `QUOTA_EXCEEDED` 基础设施无效。已将该
+任务 49 个待运行 job 原样隔离在 `queue/pending/paused_task5/`，并给矩阵
+controller 增加可显式指定、经过 task 名校验的 `--pause-task`，使 sweep 暂停
+task5 而继续处理其他 campaign；相关 3 项测试通过。矩阵 task2 原有 50 个
+job 仍在 `paused_task2/`，待独立 replay 结束后才释放。恢复 task5 前须先做
+同 EnvSpec 的非计分 reset 检查或安全重启 runtime，不得直接耗掉其 attempt-1。
