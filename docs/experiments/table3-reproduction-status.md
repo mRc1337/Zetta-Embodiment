@@ -744,3 +744,11 @@ official success=false，视频和轨迹保存在本地新 campaign 的 `state/a
 其余 baseline 正由 GPU3 单 worker 执行，尚无可报告的 recovery 或 Table 3 成绩。
 同级 `task-02` 是一次未执行的预注册草稿，code_commit 写错；正式重跑目录仅为
 `task-02-replay`，该草稿不得计分。
+
+完整范围也已重新预注册在本地
+`.local-repro/liberopro-paper-v4-matrix-20260927/`：4 settings × 10 tasks = 40 个
+独立 campaign，合计每轮 2,000 个 development rollout slots，并为各 task 单独预留
+20 个 held-out seeds。矩阵审计确认 40 个 task 都有初始状态、使用官方 horizon、
+development 与 held-out 分区互斥、回归范围为 `target_cluster`。该矩阵 task2 的
+development schedule 与上述旧 seed 配对重跑不同，二者不能合并统计；目前矩阵只是
+预注册，还没有 40-task outcome。
