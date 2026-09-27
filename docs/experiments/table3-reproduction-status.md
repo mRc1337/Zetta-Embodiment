@@ -1203,3 +1203,20 @@ logical ID、seed/policy RNG 偏差或超出两次基础设施尝试预算。
 相关 watcher/报告器的 10 项单元测试通过。运行时健康接口 epoch 为
 `1790515957`，环境池上限运行时保持约 3 个活跃加 4 个空闲模拟器子进程；
 以上是阶段性基础设施和证据完整性检查，不是 Table 3 最终成绩。
+
+### v6 全矩阵 baseline 1000/2000 阶段检查（2026-09-27 18:01 UTC）
+
+冻结的 40-task development 队列跨过半程：快照为 `completed=1006`、
+`running=3`、`pending=991`、历史 `failed=11`。按完成时间排序的前
+1000 条逐条复核，全部为 `status=valid`；其 episode record 与冻结 job 的
+logical ID、seed、policy RNG 一致，三路 MP4 非空且延迟摘要存在，证据缺口为 0。
+这 1000 条覆盖全部 40 个任务，每任务已有 22--26 条；其中 11 条是保持原
+logical ID / seed / policy RNG 的有效基础设施重试。前 1000 条中的
+official success 为 210 条，仅是未完成的 development baseline 观测，
+不是 Table 3 成绩，也不用于 held-out 结论。
+
+11 条历史 failed 逐条检查仍均为 `infra_invalid`，未新增 401；它们保留
+审计但不计入策略分母。runtime、三 worker、controller 和最终纯 VLA
+watcher 均存活。此时 baseline 仍有大量 logical ID 排队或在运行，
+候选生成、same-seed gate、historical regression、held-out 评估及最终
+Table 3 报告均未完成，故目标继续保持进行中。
