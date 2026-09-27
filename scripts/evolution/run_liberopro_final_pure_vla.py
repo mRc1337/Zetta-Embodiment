@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -134,11 +135,21 @@ def main() -> int:
     parser.add_argument("--matrix-root", type=Path, required=True)
     parser.add_argument("--queue-root", type=Path)
     parser.add_argument("--worker-host", default="gpu3")
+    parser.add_argument("--watch", action="store_true", help="wait for all evolutions, then run final tests")
+    parser.add_argument("--poll-s", type=float, default=300.0)
     args = parser.parse_args()
+    if args.poll_s <= 0:
+        parser.error("poll interval must be positive")
     root = args.matrix_root.resolve()
-    report = step(root, (args.queue_root or root / "queue"), worker_host=args.worker_host)
-    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 4 if report["status"] == "blocked_on_infrastructure" else 0
+    queue = (args.queue_root or root / "queue").resolve()
+    while True:
+        report = step(root, queue, worker_host=args.worker_host)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), flush=True)
+        if report["status"] == "blocked_on_infrastructure":
+            return 4
+        if report["status"] == "complete" or not args.watch:
+            return 0
+        time.sleep(args.poll_s)
 
 
 if __name__ == "__main__":

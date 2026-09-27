@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -84,3 +85,23 @@ def test_final_test_waits_for_all_evolution_tasks(tmp_path: Path, monkeypatch: p
     result = final_runner.step(tmp_path, tmp_path / "queue", worker_host="gpu3")
     assert result["status"] == "waiting_for_evolution"
     assert not (tmp_path / "final-pure-vla").exists()
+
+
+def test_watch_continues_past_evolution_and_stops_after_final_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    statuses = iter(("waiting_for_evolution", "running", "complete"))
+    observed: list[float] = []
+    monkeypatch.setattr(
+        final_runner,
+        "step",
+        lambda root, queue, *, worker_host: {"status": next(statuses)},
+    )
+    monkeypatch.setattr(final_runner.time, "sleep", observed.append)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["final", "--matrix-root", str(tmp_path), "--watch", "--poll-s", "1"],
+    )
+    assert final_runner.main() == 0
+    assert observed == [1.0, 1.0]

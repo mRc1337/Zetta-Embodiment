@@ -942,4 +942,6 @@ Zetta 都记为纯 VLA 的实测成功数；若证据缺失则继续返回 `inco
 `waiting_for_evolution`，未消费任何 held-out seed。全部演化完成后用
 `python -m scripts.evolution.run_liberopro_final_pure_vla --matrix-root .local-repro/liberopro-paper-v6-matrix-20260927`
 启动或重复运行该可恢复的最终测试路径，并继续让同一 GPU3 queue worker
-处理新增 rollout。
+处理新增 rollout。加 `--watch --poll-s 300` 可持续等待 40 个任务终态，
+随后自动排队、收集至全部无晋升任务的 20 个有效最终测试完成；如基础设施
+重试预算耗尽，会以非零状态退出并列出受阻任务，不会默默丢掉分母。
