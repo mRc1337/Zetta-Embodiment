@@ -980,6 +980,9 @@ queue 的 `recover_abandoned(stale_after_s=60)` 只回收该 claim，终态记�
 后续核验：控制器已将 task6–9 的失败 attempt 写入 append-only ledger，
 并为 4 个原 logical ID 排入 `attempt_index=1`；逐项核对 seed 与 policy RNG
 均和初次 attempt 一致。恢复提交的 task5 有效 episode 也已入账。
+截至同日后续巡检，v6 前 52 条完成的 rollout 均为 `status=valid`，逐条
+核对其 seed/policy RNG、纯 VLA bundle 标记、非空视频文件与延迟摘要，
+证据缺口为 0；这只是 development 证据完整性检查，不是 held-out 成绩。
 
 跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
 `heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
