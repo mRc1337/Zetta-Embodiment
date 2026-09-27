@@ -775,3 +775,17 @@ pure VLA、官方成功记录与 gate decision 一致，且视频/延迟证据�
 50%，但本地 preregistration 对连续 same-seed gate 失败设置了 2 轮上限。若
 campaign 因此提前结束，属于本地预算受限的未完成复现，不能当作论文 Table 3
 的 final harness 结果。
+
+矩阵执行已启动：第二个 GPU3 worker 使用同一 runtime、单并发处理 40-task 队列，
+配套 round-robin supervisor 使 40 个 campaign 各自入库和推进门禁。试运行期间
+两个 worker 同时运行不同 task 时，GPU3 显存保持约 14.1/24.6 GiB，首个矩阵
+baseline 为 valid，task2 replay 也继续推进。随后发现同一个
+`libero_10_swap/task2` 被两个 campaign 同时请求时，该 EnvSpec 仅声明 1 个 pool
+slot，矩阵 task2 的 attempt-0 因 `QUOTA_EXCEEDED` 成为 infrastructure-invalid；
+该记录不进入策略成功率分母。没有修改已冻结的 runtime/rollout 协议。
+
+为避免同一任务再争用池，矩阵 task2 尚未执行的 50 个队列 job 已可恢复地移到
+`queue/pending/paused_task2/`；其余 39 个 task 继续运行。矩阵 supervisor 会在
+独立 task2 replay campaign 达到终态后，验证暂停目录仅含该 task 的 job，再将
+它们原样放回 GPU3 队列。此时已有 6 个有效矩阵 baseline、1 个基础设施失败
+attempt；独立 task2 replay 为 24 个有效 baseline、0 个基础设施失败。
