@@ -803,3 +803,11 @@ infrastructure-invalid，不进入成功率分母；其 attempt-1 已由 supervi
 39 个已完成、4 个失败 attempt，1 个运行中，`paused_task2/` 仍隔离 50 个
 task2 job。继续观察 EGL 稳定性和正式 attempt-1 结果；在 40-task held-out
 配对完成并通过汇总器前，不报告 Table 3 成绩。
+
+同日后续进度：独立 task2 replay 的 Stage1 诊断和 Stage2 提案已结束，候选 bundle
+SHA-256 为 `64a219cdb9334275155437f1ea67e637bbba23b759e0bf9205d96232d6f0ee4d`。
+其 same-seed plan 冻结 50 对，50 个 parent arms 已由本轮有效 pure-VLA baseline
+证据接入，50 个 candidate arms 已入队。首个 candidate 与矩阵 baseline 均持续
+产生 rollout 心跳；截至该检查尚无 candidate 终态，不能声称 recovery 成功或
+same-seed gate 通过。主机磁盘 I/O 等待偏高，但运行时健康且未新增 401 或失败
+attempt，保留原进程与队列继续执行。
