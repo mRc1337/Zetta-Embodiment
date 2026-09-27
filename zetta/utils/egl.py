@@ -25,8 +25,9 @@ def cuda_to_egl_map() -> dict[int, int]:
     device. Software/DRM-only EGL entries are skipped, so values always point
     at GPU devices.
 
-    ``cuda_ordinal`` is the *global* CUDA device index (``EGL_CUDA_DEVICE_NV``),
-    which the driver reports regardless of ``CUDA_VISIBLE_DEVICES``.
+    ``cuda_ordinal`` is the CUDA index visible to this process. With
+    ``CUDA_VISIBLE_DEVICES=3``, for example, the selected physical card is
+    reported as CUDA index 0. EGL device indices are independent of both.
     """
     os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
     from mujoco.egl import egl_ext as EGL

@@ -9,8 +9,42 @@ idempotent and leaves newer, native implementations untouched.
 
 from __future__ import annotations
 
+import os
 from multiprocessing import connection
 from typing import Any
+
+
+def _pin_pro_render_device() -> None:
+    """Route spawned Pro renderers to the EGL peer of the policy CUDA GPU.
+
+    The policy process keeps its CUDA visibility. Only this simulator child
+    clears it: robosuite otherwise mistakes a physical CUDA ordinal for an
+    EGL device index and rejects the correct, differently numbered EGL peer.
+    """
+
+    if os.environ.get("LIBERO_TYPE", "").lower() != "pro":
+        return
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if not visible:
+        return
+    devices = [part.strip() for part in visible.split(",")]
+    if not devices or not all(part.isdigit() for part in devices):
+        raise ValueError("LIBERO-Pro render worker requires a numeric CUDA device")
+    from zetta.utils.egl import cuda_to_egl_map
+
+    # EGL_CUDA_DEVICE_NV is the ordinal *within* CUDA_VISIBLE_DEVICES in this
+    # process. With CUDA_VISIBLE_DEVICES=3, the driver's mapping is {0: 1}.
+    egl_device = cuda_to_egl_map().get(0)
+    if egl_device is None:
+        raise RuntimeError("LIBERO-Pro render worker cannot resolve its EGL device")
+    existing = os.environ.get("MUJOCO_EGL_DEVICE_ID")
+    if existing is not None and existing != str(egl_device):
+        raise ValueError("LIBERO-Pro render worker EGL device contradicts CUDA mapping")
+    os.environ["MUJOCO_EGL_DEVICE_ID"] = str(egl_device)
+    # Render subprocesses do not run policy inference. Disable their CUDA
+    # visibility so robosuite's incompatible ordinal-equality assertion does
+    # not reject the verified EGL device. The parent model remains on CUDA 3.
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 def _resolve_target(environment: Any, target: str) -> Any:
@@ -69,6 +103,7 @@ def compat_worker(
 ) -> None:
     """RLinf's LIBERO worker loop plus the Zetta ``env_call`` command."""
 
+    _pin_pro_render_device()
     from zetta.envs.libero import vector_env as upstream
     from zetta.envs.libero.vector_env import ShArray
 

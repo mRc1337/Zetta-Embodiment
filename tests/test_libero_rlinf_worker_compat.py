@@ -1,13 +1,17 @@
 # Copyright (c) 2026 Zetta Contributors
 from __future__ import annotations
 
+import os
 import sys
 import types
 from typing import Any
 
+import pytest
+
 from robots.libero.rlinf_worker_compat import (
     _dispatch_env_call,
     _parent_env_call,
+    _pin_pro_render_device,
     compat_worker,
     install_env_call_bridge,
 )
@@ -80,6 +84,39 @@ def test_parent_env_call_uses_worker_pipe() -> None:
             "target": "self",
         },
     ]
+
+
+def test_pro_render_worker_maps_cuda_to_independent_egl_index(monkeypatch) -> None:
+    monkeypatch.setenv("LIBERO_TYPE", "pro")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    monkeypatch.delenv("MUJOCO_EGL_DEVICE_ID", raising=False)
+    monkeypatch.setattr("zetta.utils.egl.cuda_to_egl_map", lambda: {0: 1})
+
+    _pin_pro_render_device()
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
+    assert os.environ["MUJOCO_EGL_DEVICE_ID"] == "1"
+
+
+def test_pro_render_worker_rejects_wrong_explicit_device(monkeypatch) -> None:
+    monkeypatch.setenv("LIBERO_TYPE", "pro")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    monkeypatch.setenv("MUJOCO_EGL_DEVICE_ID", "3")
+    monkeypatch.setattr("zetta.utils.egl.cuda_to_egl_map", lambda: {0: 1})
+
+    with pytest.raises(ValueError, match="contradicts CUDA mapping"):
+        _pin_pro_render_device()
+
+
+def test_non_pro_render_worker_keeps_cuda_visibility(monkeypatch) -> None:
+    monkeypatch.setenv("LIBERO_TYPE", "standard")
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "3")
+    monkeypatch.delenv("MUJOCO_EGL_DEVICE_ID", raising=False)
+
+    _pin_pro_render_device()
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "3"
+    assert "MUJOCO_EGL_DEVICE_ID" not in os.environ
 
 
 def test_installer_patches_legacy_worker_and_preserves_native(monkeypatch) -> None:

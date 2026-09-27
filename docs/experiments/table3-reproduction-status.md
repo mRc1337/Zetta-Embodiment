@@ -1009,3 +1009,39 @@ v6 manifest 仍保留最初预注册的 `code_commit=b04bd206...`；这是对演
 已生成的 rollout/gate 证据。仅在控制器处于轮询睡眠时停止旧进程并以
 修复代码恢复；GPU3 runtime 与两个 queue worker 均未重启，已有 ledger
 继续沿原 logical ID 累积。
+
+Goal-S task6–9 的第二条不同 seed 的首次 attempt 后来又在环境 reset
+阶段报 `Broken pipe`，累计 8 条 `infra_invalid`，仍无 401。独立、
+不计分的环境探针复现了更具体的子进程错误：`CUDA_VISIBLE_DEVICES=3`
+但不指定 EGL 时，task6 seed67688 的 reset 抛出 MuJoCo
+`Offscreen framebuffer is not complete, error 0x8cdd`，父进程表现为
+`Connection reset by peer`；清空仅模拟器子进程的 CUDA 可见性并设置
+`MUJOCO_EGL_DEVICE_ID=1` 后，同一任务/seed 的 reset 正常。
+进一步实测这台机器在 `CUDA_VISIBLE_DEVICES=3` 下 EGL 映射为
+`{0: 1}`：CUDA 0 是进程内重编号的物理 GPU3，而 EGL 1 才是其渲染
+设备。由此判断上述 8 条是渲染设备选择错误引起的基础设施失败，不能
+解释为 recovery 策略或 BDDL 目标失败。
+
+修复限定在 spawned LIBERO-Pro 模拟器子进程：按当前 CUDA 可见设备的
+进程内 0 号查询 EGL 对应设备，设置 `MUJOCO_EGL_DEVICE_ID`，然后只
+清空该子进程的 `CUDA_VISIBLE_DEVICES`，绕开 robosuite 假设 CUDA/EGL
+序号相等的校验。policy 父进程仍使用 GPU3；非 Pro 环境不改变配置。
+定向测试 53 项通过，实际映射探针得到 `child_cuda='' egl=1`。
+为了避免在修复服务重启前继续消耗受影响任务的基础设施重试预算，
+task6–9 尚未启动的 196 条 job（每任务 49 条）被可逆地移至
+`queue/pending/paused_goal_s_task6_9/`；其他 36 个任务保留原队列，
+manifest、logical ID、种子和 policy RNG 均未更改。
+
+维护切换时先将其余 1,719 条待领取 job 暂存到
+`queue/pending/paused_maintenance/`，待两条运行中 rollout 自然收尾后，
+停止两个空闲 worker 和旧 runtime，再以相同配置、端口及物理 GPU3
+启动新 runtime。健康接口恢复后，使用不入正式 queue/ledger 的 runtime
+session 对 Goal-S task6–9 逐一做 seed67688 的 reset 探针：四项均成功，
+task language 分别为 `Put the cream cheese on the bowl`、
+`Turn on the stove`、`Put the bowl on the plate`、
+`Put the wine bottle on the rack`。随后将两个暂停目录合计 1,915 条
+原 job 原样移回 `pending/gpu3`，双 worker 和 controller 已重启。
+这验证了环境启动修复，不是 4 个任务的策略成功率或 Table 3 成绩；
+正式 infra-invalid logical ID 仍须等待原 seed、原 policy RNG 的 attempt-1
+完成并经 controller 入账。runtime `/healthz` 返回 `auth=disabled`，
+此次 v6 的 8 条环境错误与旧 v3 的 Codex Role1 401 是不同故障。
