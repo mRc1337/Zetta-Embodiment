@@ -811,3 +811,29 @@ SHA-256 为 `64a219cdb9334275155437f1ea67e637bbba23b759e0bf9205d96232d6f0ee4d`�
 产生 rollout 心跳；截至该检查尚无 candidate 终态，不能声称 recovery 成功或
 same-seed gate 通过。主机磁盘 I/O 等待偏高，但运行时健康且未新增 401 或失败
 attempt，保留原进程与队列继续执行。
+
+同日 I/O 事故与基础设施修复：共享 `/usr1` 磁盘持续高 I/O wait；原 rollout 每条
+latency event、每行最终轨迹都执行 `fsync`。矩阵 task4 和 task5 的 baseline 已完成
+动作与视频生成，却在后处理落盘阶段超过冻结的 240 秒 no-progress 窗口，被
+`episode_no_progress_timeout` 记为 infrastructure-invalid。独立 task2 replay 的
+首个 candidate 在第 114 步触发 Role1，并接受冻结 recovery 提案，实际执行
+`vla_execute` 320 步；其 episode 仍因同样的后处理 watchdog 超时无效，**不能**
+计为救援成功。被终止的 runtime session 暂时占满 1-slot 环境池，随后的 13 个
+candidate attempt-0 立即因 `QUOTA_EXCEEDED` 无效；这些均不进入策略分母。
+
+为阻止级联，矩阵和独立 task2 的 supervisor 已停止；矩阵约 1,910 个待运行 job、
+task2 约 43 个待运行 job 原样移入各自 `queue/pending/paused_io/`，没有删除或
+重排 seed。两个 worker 在已有作业终止、running claims 清零后退出。非计分
+task2 create/reset/close 复核全部返回 `Ok`，runtime 不需重启。基础设施补丁
+将 latency event 的 durability barrier 延至 episode finalize，将完整轨迹按批
+写入并同步，并让 watchdog 识别同一 attempt 目录下视频、轨迹、visual evidence
+的实际文件更新；它不改 VLA、recovery、随机种子、冻结 plan 或评分门限。相关
+81 项相关测试通过，补丁应用前的正式结果仍留存以供审计。
+
+补丁后先单独放行矩阵 `goal-s/task-00` 的一条 fresh baseline：117 秒完成，
+`status=valid`、official success=false、三路 MP4 非空、watchdog 无误报。该
+作业只证明基础设施修复对短 horizon 有效；长 horizon 的 task4 attempt-1 正
+单独验证中，在它返回有效终态前不会放行整批暂停队列。此处为冻结 campaign
+启动后的基础设施实施修订，须与原 `code_commit` 区分记录；不能把之前
+infra-invalid 的 attempt 追认成 valid，也不能在未完成 40-task held-out 前
+汇报 Table 3 成绩。

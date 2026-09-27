@@ -11,6 +11,24 @@ from robots.libero.latency import LatencyRecorder, parse_latency_components
 from robots.libero.tools import LiberoPrimitives
 
 
+def test_latency_events_sync_once_at_finalize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr("robots.libero.latency.os.fsync", calls.append)
+    recorder = LatencyRecorder(
+        enabled=True,
+        events_path=tmp_path / "events.jsonl",
+        summary_path=tmp_path / "summary.json",
+    )
+    recorder.record("model_inference", 0.1)
+    recorder.record("model_inference", 0.2)
+    assert calls == []
+    recorder.finalize()
+    assert len(calls) == 1
+    assert len((tmp_path / "events.jsonl").read_text().splitlines()) == 2
+
+
 def test_latency_recorder_filters_events_and_summarizes(tmp_path: Path) -> None:
     events = tmp_path / "events.jsonl"
     summary = tmp_path / "summary.json"

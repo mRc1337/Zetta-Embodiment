@@ -22,6 +22,7 @@ from robots.libero.role1_recovery import (
 )
 from robots.libero.run_evolution_rollout import (
     REPOSITORY_ROOT,
+    _append_jsonl_batch,
     _exception_traceback,
     _frozen_subprocess_environment,
     _require_expected_task_language,
@@ -47,6 +48,22 @@ from scripts.evolution.prepare_libero_campaign import (
     prepare,
 )
 from scripts.evolution.prepare_libero_role1_smoke import prepare as prepare_role1_smoke
+
+
+def test_audit_batch_appends_all_rows_with_one_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr("robots.libero.run_evolution_rollout.os.fsync", calls.append)
+    path = tmp_path / "trajectory" / "states.jsonl"
+    _append_jsonl_batch(path, [{"step_index": 1}, {"step_index": 2}])
+    assert len(calls) == 1
+    assert path.read_text(encoding="utf-8").splitlines() == [
+        '{"step_index": 1}',
+        '{"step_index": 2}',
+    ]
+    _append_jsonl_batch(path, [])
+    assert len(calls) == 1
 
 
 def test_recorded_rgb_frame_owns_renderer_memory() -> None:
@@ -630,7 +647,13 @@ def test_libero_role1_heartbeat_is_live_during_long_reasoning(tmp_path: Path) ->
 
     path = tmp_path / "heartbeat.jsonl"
     with _role1_inference_heartbeat(path, interval_s=0.01, step_index=9):
-        time.sleep(0.035)
+        deadline = time.monotonic() + 2.0
+        while (
+            not path.exists()
+            or len(path.read_text(encoding="utf-8").splitlines()) < 2
+        ):
+            assert time.monotonic() < deadline, "Role1 heartbeat did not advance"
+            time.sleep(0.01)
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     assert len(rows) >= 2
     assert {row["phase"] for row in rows} == {"role1_inference"}

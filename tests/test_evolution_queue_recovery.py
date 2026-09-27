@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -14,8 +16,51 @@ import zetta.evolution.queue as queue_module
 from zetta.evolution.campaign import _known_job_ids, ingest_queue_results
 from zetta.evolution.jsonio import atomic_write_json, read_json
 from zetta.evolution.models import CampaignManifest, EpisodeRecord
-from zetta.evolution.queue import RolloutJob, SharedHostQueue, run_worker
+from zetta.evolution.queue import (
+    RolloutJob,
+    SharedHostQueue,
+    SubprocessRolloutExecutor,
+    run_worker,
+)
 from zetta.evolution.store import CampaignStore
+
+
+def test_artifact_progress_probe_ignores_heartbeat_and_stdout(tmp_path: Path) -> None:
+    heartbeat = tmp_path / "heartbeat.jsonl"
+    stdout = tmp_path / "worker.stdout.log"
+    heartbeat.write_text("live\n", encoding="utf-8")
+    stdout.write_text("noise\n", encoding="utf-8")
+    assert queue_module._latest_artifact_mtime_ns(tmp_path, heartbeat) == 0
+
+    video = tmp_path / "videos" / "episode_agentview.mp4"
+    video.parent.mkdir()
+    video.write_bytes(b"first")
+    first = queue_module._latest_artifact_mtime_ns(tmp_path, heartbeat)
+    assert first == video.stat().st_mtime_ns
+
+    video.write_bytes(b"second frame")
+    os.utime(video, ns=(first + 1_000_000, first + 1_000_000))
+    assert queue_module._latest_artifact_mtime_ns(tmp_path, heartbeat) > first
+
+
+def test_executor_accepts_artifact_progress_after_final_heartbeat(
+    tmp_path: Path,
+) -> None:
+    code = (
+        "from pathlib import Path; import time; "
+        "p=Path('trajectory/progress.jsonl'); p.parent.mkdir(); "
+        "[(p.write_text(str(i)), time.sleep(1.25)) for i in range(4)]; "
+        "Path('episode_record.json').write_text('{}')"
+    )
+    job = replace(
+        _job(tmp_path),
+        command=(sys.executable, "-c", code),
+        timeout_s=15,
+        no_progress_timeout_s=3,
+    )
+    result = SubprocessRolloutExecutor().run(job)
+    assert result["success"] is True
+    assert result["watchdog_reason"] is None
 
 
 def _job(tmp_path: Path, *, job_id: str = "job-authoritative") -> RolloutJob:

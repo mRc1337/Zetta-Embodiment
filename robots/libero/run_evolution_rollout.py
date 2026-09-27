@@ -128,6 +128,20 @@ def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
         os.fsync(stream.fileno())
 
 
+def _append_jsonl_batch(path: Path, values: Iterable[dict[str, Any]]) -> None:
+    """Persist one completed audit batch with a single durability barrier."""
+
+    rows = list(values)
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as stream:
+        for value in rows:
+            stream.write(json.dumps(value, ensure_ascii=False, default=str) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
 def runtime_ledger_rows(
     records: Iterable[Mapping[str, Any]],
     *,
@@ -484,25 +498,32 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
             # env that has it can never be diverted onto this newer path.
             if not hasattr(env, "drain_step_records"):
                 return
+            action_rows: list[dict[str, Any]] = []
+            state_rows: list[dict[str, Any]] = []
             for action_row, state_row, next_eef in runtime_ledger_rows(
                 env.drain_step_records(), previous_eef=last_eef
             ):
-                _append_jsonl(actions_path, action_row)
-                _append_jsonl(states_path, state_row)
+                action_rows.append(action_row)
+                state_rows.append(state_row)
                 last_eef = next_eef
                 last_audit_step = max(last_audit_step, int(state_row["step_index"]))
+            _append_jsonl_batch(actions_path, action_rows)
+            _append_jsonl_batch(states_path, state_rows)
             return
+        action_rows = []
+        state_rows = []
         for row in env.audit_trace(since_step=last_audit_step):
-            _append_jsonl(
-                actions_path,
+            action_rows.append(
                 {
                     "step_index": row["step_index"],
                     "action": row["action"],
                     "action_sha256": row["action_sha256"],
                 },
             )
-            _append_jsonl(states_path, row)
+            state_rows.append(row)
             last_audit_step = max(last_audit_step, int(row["step_index"]))
+        _append_jsonl_batch(actions_path, action_rows)
+        _append_jsonl_batch(states_path, state_rows)
 
     try:
         if args.runtime_url:

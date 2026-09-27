@@ -704,6 +704,23 @@ class SharedHostQueue:
         return recovered
 
 
+def _latest_artifact_mtime_ns(output_dir: Path, heartbeat: Path) -> int:
+    """Newest scoped evidence write, excluding liveness-only files."""
+
+    newest = 0
+    for path in output_dir.rglob("*"):
+        if path == heartbeat or path.name == "worker.stdout.log":
+            continue
+        try:
+            if path.is_file():
+                newest = max(newest, path.stat().st_mtime_ns)
+        except OSError:
+            # An atomic rename may replace a file during this best-effort
+            # probe; the next probe will observe its final name.
+            continue
+    return newest
+
+
 class SubprocessRolloutExecutor:
     """Run one immutable command with wall/no-progress watchdogs."""
 
@@ -728,6 +745,11 @@ class SubprocessRolloutExecutor:
         last_progress = started
         heartbeat = Path(job.heartbeat_file).resolve()
         last_mtime = heartbeat.stat().st_mtime if heartbeat.exists() else None
+        last_artifact_mtime_ns = _latest_artifact_mtime_ns(output_dir, heartbeat)
+        artifact_probe_interval = min(
+            10.0, max(1.0, job.no_progress_timeout_s / 4.0)
+        )
+        next_artifact_probe = started + artifact_probe_interval
         reason: str | None = None
         path_substitutions = {
             job.output_dir: str(output_dir),
@@ -779,6 +801,22 @@ class SubprocessRolloutExecutor:
                     if last_mtime is None or mtime > last_mtime:
                         last_progress = now
                         last_mtime = mtime
+                # Rollout postprocessing writes videos, trajectories, and
+                # visual evidence after the final environment heartbeat.
+                # Treat those scoped artifact writes as progress, otherwise
+                # a busy filesystem can kill a completed episode while it is
+                # still durably materializing its evidence.
+                if (
+                    now >= next_artifact_probe
+                    and now - last_progress >= artifact_probe_interval
+                ):
+                    artifact_mtime_ns = _latest_artifact_mtime_ns(
+                        output_dir, heartbeat
+                    )
+                    if artifact_mtime_ns > last_artifact_mtime_ns:
+                        last_progress = now
+                        last_artifact_mtime_ns = artifact_mtime_ns
+                    next_artifact_probe = now + artifact_probe_interval
                 if now - started > job.timeout_s:
                     reason = "episode_wall_timeout"
                     break

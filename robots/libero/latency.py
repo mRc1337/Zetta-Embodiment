@@ -109,8 +109,10 @@ class LatencyRecorder:
         }
         with self.events_path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+            # A partial rollout is never accepted as a valid episode. Keep
+            # events visible to the live audit, but defer the durability
+            # barrier until finalize(): one fsync per event can stall the
+            # simulator for minutes on a busy shared filesystem.
         self._values[component].append(elapsed)
 
     @contextmanager
@@ -162,6 +164,8 @@ class LatencyRecorder:
 
         if not self.enabled:
             return None
+        with self.events_path.open("rb") as stream:
+            os.fsync(stream.fileno())
         payload = self.summary()
         temporary = self.summary_path.with_name(f".{self.summary_path.name}.tmp")
         temporary.write_text(
