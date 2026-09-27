@@ -760,3 +760,18 @@ seeds 向共享队列写入 2,000 个 baseline jobs；目前该矩阵队列尚�
 5 个有效 baseline、0 个基础设施失败。还使用冻结的 `gpt-5.6-sol` 模型做最小
 Codex 调用，确认当前凭据能返回有效响应；这只验证了认证链路，不能保证后续
 Role1 介入成功。
+
+新增只读、fail-closed 的 Table 3 汇总器：
+`python -m scripts.evolution.report_liberopro_table3 --matrix-root <matrix-root>`。
+它仅在 40 个 campaign 均终止、每 task 有 20 对有效 held-out arms、parent 确为
+pure VLA、官方成功记录与 gate decision 一致，且视频/延迟证据齐备时才输出
+4-setting × 10-task success rate 和宏平均。当前矩阵返回 `status=incomplete`、
+`completed_tasks=0`，不会把 2,000 个排队 job 或 development 结果写成 Table 3
+成绩。该首版汇总器只接受 generation-0 直接对 pure VLA 的 held-out；若以后形成
+跨 generation 的累计 harness，须先为最终 harness 与 pure VLA 做同一 20-seed 的
+独立配对评测，再扩展汇总器，不能把上一代 harness 误标为 pure VLA。
+
+协议边界：论文 §4.1 描述在最大失败簇的 development seeds 上迭代至成功率至少
+50%，但本地 preregistration 对连续 same-seed gate 失败设置了 2 轮上限。若
+campaign 因此提前结束，属于本地预算受限的未完成复现，不能当作论文 Table 3
+的 final harness 结果。
