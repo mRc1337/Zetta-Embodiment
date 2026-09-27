@@ -877,3 +877,17 @@ append-only 证据、失败尝试和冻结 manifest；停止时在途子进程�
 但旧队列不再作为正式策略判定继续推进。下一轮须用新代码版本重新预注册并
 重跑；旧 v3 的 401 重试仍保留历史审计记录，但 v3 随机种子缺陷和本次 v4
 prompt plumbing 缺陷均不能靠重释旧结果修复。
+
+修复提交 `eeb870af335debdc48e48a3a4d861aebffe9a145` 已推送；扩展测试集合
+95 项通过。用同一非计分 LIBERO-Pro task2 reset 观测、固定 policy seed 做
+`原指令 → moka 恢复指令 → 原指令` 三次在线推理：两次原指令动作块 SHA-256
+相同，恢复指令动作块不同；会话已正常关闭。这验证了新的端到端指令通道，
+但不是正式 rollout 成绩。
+
+据此新建 `liberopro-paper-v5-matrix-20260927`：40/40 manifest 的
+`code_commit` 固定为上述修复提交，沿用 v4 的 40 任务、全部 50 个开发种子、
+20 个留出种子及逐种子 policy RNG（逐项比对相同），不导入任何旧 episode。
+40 个 campaign 已初始化；GPU3 单 worker 开始执行全新 generation-0
+pure-VLA baseline。旧 v4 矩阵和旧 task2 replay 均停止作为正式结果来源，
+其本地目录仅作审计。新矩阵仍须完成完整 Zetta 演化、同种子与历史回归、
+全部 held-out 测试及报告器核验，当前没有 Table 3 数值可报告。
