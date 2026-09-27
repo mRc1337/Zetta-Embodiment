@@ -929,3 +929,17 @@ manifest/交接 digest、40 条有效 arm、视频、延迟摘要与 gate decisi
 两次晋升的回归测试确认只取最终候选；当前 v6 仍运行时，汇总器严格返回
 `incomplete`（0/40），不产生虚假的 Table 3 平均值。若某任务从未晋升且
 没有纯 VLA held-out 测试，汇总器仍会拒绝报告，需补齐真实最终测试证据。
+
+无晋升任务的最终测试边界现已补齐：`run_liberopro_final_pure_vla.py`
+只在全部 40 个演化 campaign 达到终态后，才为未晋升的任务创建独立的
+`final-pure-vla/` 测试 campaign。它只调度原先冻结的 1–20 seeds 及同一
+policy RNG 的纯 VLA rollout；不运行聚类、Role1/Role2 提案或晋升，因此
+测试反馈不会进入策略优化。若候选跑过 held-out gate 却未晋升，最终 harness
+仍是纯 VLA，不能把该候选的测试 arm 误报为 Zetta 成绩。汇总器要求
+20 条有效 episode、非空视频与延迟摘要，并在这种情形下将 baseline 与
+Zetta 都记为纯 VLA 的实测成功数；若证据缺失则继续返回 `incomplete`。
+当前 v6 尚有 40 个未终态任务，该路径的只读前置检查返回
+`waiting_for_evolution`，未消费任何 held-out seed。全部演化完成后用
+`python -m scripts.evolution.run_liberopro_final_pure_vla --matrix-root .local-repro/liberopro-paper-v6-matrix-20260927`
+启动或重复运行该可恢复的最终测试路径，并继续让同一 GPU3 queue worker
+处理新增 rollout。

@@ -9,6 +9,7 @@ import pytest
 
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
 from scripts.evolution.report_liberopro_table3 import _score_task, summarize
+from scripts.evolution.run_liberopro_final_pure_vla import evaluation_root
 from zetta.evolution.jsonio import canonical_sha256
 
 
@@ -35,7 +36,7 @@ def _completed_task(root: Path, suite: str, task_id: int) -> dict:
         "runtime": {"evolution_policy": {"heldout_mode": "test", "regression_scope": "target_cluster"}},
     }
     _write_json(campaign / "manifest.json", manifest)
-    _write_json(campaign / "state/state.json", {"phase": "complete"})
+    _write_json(campaign / "state/state.json", {"phase": "complete", "current_bundle_sha256": CANDIDATE})
     video = campaign / "state/evidence.mp4"
     latency = campaign / "state/latency.json"
     video.write_bytes(b"video")
@@ -81,6 +82,8 @@ def _completed_task(root: Path, suite: str, task_id: int) -> dict:
         "parent_successes": 4,
         "candidate_successes": 10,
     }) + "\n", encoding="utf-8")
+    promotions = campaign / "state/ledgers/promotions.jsonl"
+    promotions.write_text(json.dumps({"candidate_sha256": CANDIDATE}) + "\n", encoding="utf-8")
     return {
         "suite": suite,
         "task_id": task_id,
@@ -247,3 +250,75 @@ def test_report_uses_last_gate_after_two_promotions(tmp_path: Path) -> None:
     assert result["zetta_successes"] == 15
     assert result["final_generation"] == 2
     assert result["candidate_sha256"] == final_candidate
+
+
+def test_report_scores_no_promotion_only_with_complete_pure_vla_final_test(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    row["setting_slug"] = "goal-t"
+    campaign = tmp_path / row["campaign_root"]
+    # A candidate may have completed a test gate but failed promotion; its
+    # candidate arm must not become the reported final harness.
+    source_path = campaign / "manifest.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source.update({"baseline_mode": "strict_pure_vla", "active_bundle_sha256": None})
+    _write_json(source_path, source)
+    _write_json(campaign / "state/state.json", {"phase": "complete", "current_bundle_sha256": None})
+    (campaign / "state/ledgers/promotions.jsonl").unlink()
+    with pytest.raises(FileNotFoundError):
+        _score_task(campaign, row, COMMIT)
+
+    root = evaluation_root(tmp_path, row)
+    manifest = {
+        **source,
+        "rollout_seeds": list(range(1, 21)),
+        "heldout_seeds": source["rollout_seeds"][:20],
+        "expected_rollouts": 20,
+        "expected_heldout": 20,
+        "policy_rng_by_seed": {
+            str(seed): source["policy_rng_by_seed"][str(seed)]
+            for seed in (*range(1, 21), *source["rollout_seeds"][:20])
+        },
+        "runtime": {
+            **source["runtime"],
+            "evaluation_scope": "final_pure_vla_test",
+            "evaluation_source_manifest_sha256": canonical_sha256(source),
+        },
+    }
+    _write_json(root / "manifest.json", manifest)
+    _write_json(root / "state.json", {
+        "phase": "rollout",
+        "manifest_sha256": canonical_sha256(manifest),
+        "current_bundle_sha256": None,
+    })
+    video = root / "evidence.mp4"
+    latency = root / "latency.json"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"video")
+    latency.write_bytes(b"{}")
+    ledger = root / "ledgers/episodes.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    records = []
+    for index in range(20):
+        seed = index + 1
+        records.append({
+            "episode_id": f"test-{seed}",
+            "logical_id": f"g0000-rollout-{index:03d}",
+            "generation": 0,
+            "seed": seed,
+            "policy_rng": source["policy_rng_by_seed"][str(seed)],
+            "bundle_sha256": None,
+            "status": "valid",
+            "success": seed <= 7,
+            "started_at": "2026-09-27T00:00:00Z",
+            "finished_at": "2026-09-27T00:01:00Z",
+            "elapsed_s": 60.0,
+            "artifact_index": {"videos": {"agentview": str(video)}, "latency_summary": str(latency)},
+        })
+    ledger.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+    result = _score_task(campaign, row, COMMIT)
+    assert result["baseline_successes"] == result["zetta_successes"] == 7
+    assert result["candidate_sha256"] is None
+
+    ledger.write_text("".join(json.dumps(record) + "\n" for record in records[:-1]), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected 20"):
+        _score_task(campaign, row, COMMIT)

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
+from scripts.evolution.run_liberopro_final_pure_vla import EVALUATION_SCOPE, evaluation_root
 from zetta.evolution.jsonio import canonical_sha256, read_json
 from zetta.evolution.models import EpisodeRecord
 
@@ -193,6 +194,86 @@ def _score_gate(
     return successes
 
 
+def _score_final_pure_vla(
+    campaign_root: Path, row: dict[str, Any], source_manifest: dict[str, Any]
+) -> int:
+    """Score a terminal no-promotion task from its separate final-test lane."""
+
+    source_state = read_json(campaign_root / "state/state.json")
+    if (
+        source_state.get("current_bundle_sha256") is not None
+        or source_state.get("candidate_sha256") is not None
+        or source_manifest.get("generation") != 0
+        or source_manifest.get("baseline_mode") != "strict_pure_vla"
+        or source_manifest.get("active_bundle_sha256") is not None
+    ):
+        raise ValueError("no-promotion task is not a pure-VLA harness")
+    promotion_path = campaign_root / "state/ledgers/promotions.jsonl"
+    if promotion_path.is_file() and _jsonl(promotion_path):
+        raise ValueError("no-promotion task has promotion evidence")
+    root = evaluation_root(campaign_root.parents[2], row)
+    manifest = read_json(root / "manifest.json")
+    state = read_json(root / "state.json")
+    seeds = list(range(1, 21))
+    if (
+        manifest.get("runtime", {}).get("evaluation_scope") != EVALUATION_SCOPE
+        or manifest["runtime"].get("evaluation_source_manifest_sha256")
+        != canonical_sha256(source_manifest)
+        or manifest.get("code_commit") != source_manifest.get("code_commit")
+        or manifest.get("task") != row["task"]
+        or manifest.get("generation") != 0
+        or manifest.get("baseline_mode") != "strict_pure_vla"
+        or manifest.get("active_bundle_sha256") is not None
+        or manifest.get("rollout_seeds") != seeds
+        or manifest.get("heldout_seeds") != source_manifest["rollout_seeds"][:20]
+        or manifest.get("expected_rollouts") != 20
+        or manifest.get("expected_heldout") != 20
+        or manifest.get("policy_rng_by_seed")
+        != {
+            str(seed): source_manifest["policy_rng_by_seed"][str(seed)]
+            for seed in (*seeds, *source_manifest["rollout_seeds"][:20])
+        }
+        or state.get("manifest_sha256") != canonical_sha256(manifest)
+        or state.get("phase") != "rollout"
+        or state.get("current_bundle_sha256") is not None
+    ):
+        raise ValueError("final pure-VLA test manifest or state differs")
+    records = _jsonl(root / "ledgers/episodes.jsonl")
+    if len(records) != 20:
+        raise ValueError(f"final pure-VLA test has {len(records)} valid episodes, expected 20")
+    observed: set[str] = set()
+    successes = 0
+    for payload in records:
+        record = EpisodeRecord.from_dict(payload)
+        if record.logical_id in observed:
+            raise ValueError("final pure-VLA test has a duplicate episode")
+        observed.add(record.logical_id)
+        suffix = record.logical_id.removeprefix("g0000-rollout-")
+        index = (
+            int(suffix)
+            if record.logical_id.startswith("g0000-rollout-") and suffix.isdigit()
+            else -1
+        )
+        if (
+            not 0 <= index < 20
+            or record.status != "valid"
+            or record.generation != 0
+            or record.seed != index + 1
+            or record.policy_rng
+            != source_manifest["policy_rng_by_seed"][str(index + 1)]
+            or record.bundle_sha256 is not None
+        ):
+            raise ValueError("final pure-VLA episode violates frozen test schedule")
+        videos = record.artifact_index.get("videos")
+        if not isinstance(videos, dict) or not videos:
+            raise ValueError("final pure-VLA episode has no video evidence")
+        for path in videos.values():
+            _artifact(path, campaign_root=root)
+        _artifact(record.artifact_index.get("latency_summary"), campaign_root=root)
+        successes += int(record.success is True)
+    return successes
+
+
 def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> dict[str, Any]:
     nodes = _lineage(campaign_root, row, code_commit)
     manifest = nodes[0][1]
@@ -215,12 +296,24 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
 
     if len(nodes) == 1:
         gates = list((nodes[0][0] / "candidates").glob("*/gates/heldout_20/plan.json"))
-        if len(gates) != 1:
-            raise ValueError("final pure-VLA harness lacks a held-out test")
-        candidate_sha = gates[0].parents[2].name
-        measured = _score_gate(campaign_root, nodes[0][0], manifest, candidate_sha, None)
-        baseline_successes = measured["parent"]
-        zetta_successes = measured["candidate"]
+        state = read_json(nodes[0][0] / "state.json")
+        if state.get("current_bundle_sha256") is None:
+            baseline_successes = _score_final_pure_vla(campaign_root, row, manifest)
+            zetta_successes = baseline_successes
+            candidate_sha = None
+        elif (
+            len(gates) == 1
+            and state.get("current_bundle_sha256") == gates[0].parents[2].name
+        ):
+            candidate_sha = state["current_bundle_sha256"]
+            promotions = _jsonl(nodes[0][0] / "ledgers/promotions.jsonl")
+            if len(promotions) != 1 or promotions[0].get("candidate_sha256") != candidate_sha:
+                raise ValueError("terminal candidate lacks a promotion record")
+            measured = _score_gate(campaign_root, nodes[0][0], manifest, candidate_sha, None)
+            baseline_successes = measured["parent"]
+            zetta_successes = measured["candidate"]
+        else:
+            raise ValueError("terminal promoted harness lacks a unique held-out gate")
         final_generation = 0
     else:
         first_handoff = read_json(nodes[0][0] / "analysis/generation-continuation.json")
