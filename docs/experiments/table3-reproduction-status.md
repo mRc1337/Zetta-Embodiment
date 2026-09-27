@@ -955,3 +955,16 @@ GPU3 并行试运行（2026-09-27）：v6 原单 worker 已完成 13 条有效 b
 增加的是执行并行度，未改 manifest、种子、policy RNG、任务目标或 gate。
 如后续超时/失败率上升，应撤回第二 worker 并按原 logical ID 重试基础设施
 attempt，不能改用失败任务的其他种子代替。
+
+跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
+`heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
+但旧跨代恢复函数错误地再次要求 held-out decision 的 `passed=true`。
+这样即使候选通过同种子/回归开发门禁并被合法晋升，只要最终测试统计
+未达显著性，下一代创建就会卡住。修复后跨代恢复仅要求 test-mode 的
+held-out 决定已记录；validation-mode 仍须 `passed=true`。新增回归测试
+覆盖失败 held-out 决定下的晋升、子代创建与幂等恢复，57 项相关测试通过。
+v6 manifest 仍保留最初预注册的 `code_commit=b04bd206...`；这是对演化
+控制器的协议实现热修复，未改变候选代码、50/20 种子、policy RNG 或任何
+已生成的 rollout/gate 证据。仅在控制器处于轮询睡眠时停止旧进程并以
+修复代码恢复；GPU3 runtime 与两个 queue worker 均未重启，已有 ledger
+继续沿原 logical ID 累积。
