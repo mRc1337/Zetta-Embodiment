@@ -1045,3 +1045,11 @@ task language 分别为 `Put the cream cheese on the bowl`、
 正式 infra-invalid logical ID 仍须等待原 seed、原 policy RNG 的 attempt-1
 完成并经 controller 入账。runtime `/healthz` 返回 `auth=disabled`，
 此次 v6 的 8 条环境错误与旧 v3 的 Codex Role1 401 是不同故障。
+恢复后首两条完整正式 rollout（LIBERO-10-S task3/task4）均以
+`status=valid` 收尾，`agentview`、`wrist`、`multiview` 视频及延迟摘要
+均存在；两条的任务成功标志均为 false，不能当作 recovery 效果。
+截至 2026-09-27 12:01 UTC，queue 为 88 completed / 8 failed / 2 running /
+1,910 pending，8 条 failed 的同 logical ID attempt-1 均已入队；
+runtime 健康接口 `env_ranks_healthy=1`、`heartbeat_failed=0`。
+Goal-S task6–9 的正式同种子重试仍未完成，不能据非计分 reset 探针
+宣称其有效 episode 或任务成功。
