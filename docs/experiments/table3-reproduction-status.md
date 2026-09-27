@@ -830,10 +830,18 @@ task2 create/reset/close 复核全部返回 `Ok`，runtime 不需重启。基础
 的实际文件更新；它不改 VLA、recovery、随机种子、冻结 plan 或评分门限。相关
 81 项相关测试通过，补丁应用前的正式结果仍留存以供审计。
 
-补丁后先单独放行矩阵 `goal-s/task-00` 的一条 fresh baseline：117 秒完成，
+基础设施修订代码提交为 `0ed1fd3`，与 campaign manifest 原始
+`code_commit=094d953...` 明确区分。补丁后先单独放行矩阵 `goal-s/task-00`
+的一条 fresh baseline：117 秒完成，
 `status=valid`、official success=false、三路 MP4 非空、watchdog 无误报。该
-作业只证明基础设施修复对短 horizon 有效；长 horizon 的 task4 attempt-1 正
-单独验证中，在它返回有效终态前不会放行整批暂停队列。此处为冻结 campaign
-启动后的基础设施实施修订，须与原 `code_commit` 区分记录；不能把之前
+作业只证明基础设施修复对短 horizon 有效；随后长 horizon 的 task4
+attempt-1 也在 154 秒内完成，`status=valid`、official success=false、
+三路 MP4 非空、watchdog 无误报。task2 环境池非计分 create/reset/close
+复核通过，14 条 infrastructure-invalid attempt 已由幂等 supervisor 接纳；
+其原预算内的 attempt-1 均已排队，只有 p000 candidate 的 attempt-1 被单独
+放行验证，其余仍隔离。该 p000 attempt-1 在 145 秒内取得 `status=valid`、
+三路 MP4 非空，Role1 在环境第 114 步接受冻结 recovery 并执行 320 步
+`vla_execute`；official success 仍为 false。因此它是一次实际介入但未救援的
+有效负样本，不是恢复成功。此处为冻结 campaign 启动后的基础设施实施修订；不能把之前
 infra-invalid 的 attempt 追认成 valid，也不能在未完成 40-task held-out 前
 汇报 Table 3 成绩。
