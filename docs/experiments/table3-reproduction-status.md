@@ -4,11 +4,11 @@
 
 ## 结论
 
-论文 Table 3 要求对一个 LIBERO-Pro setting 的 10 个 task 计算 success rate，并以 10 个 task 的宏平均作为 `Average`。当前仓库**尚未完成该实验**，因此不能报告论文 Table 3 的 10-task 数值，也不能把 README 中的 90.8% 当成本机结果。
+论文 [Table 3](https://arxiv.org/html/2608.16590) 覆盖 Goal (T)、Goal (S)、LIBERO-10 (T)、LIBERO-10 (S) 四个 setting，共 40 个 task-setting 对。每个 task 的最终 success rate 来自隔离的 seeds 1--20；每组的 `Average` 是该组 10 个 task rate 的宏平均。演化另用每 task 50 个、排除 1--20 的 development seeds。当前仓库**尚未完成该实验**，因此不能报告本机 Table 3 的四组最终数值，也不能把论文或 README 的百分比当成本机结果。
 
-## 当前可核验 artifact
+## 早期单 episode artifact（非当前 v6 正式矩阵）
 
-仓库内目前只有少量单 episode 结果：
+仓库内提交的早期演示只有少量单 episode 结果；本地 `.local-repro/` 的 v6 正式矩阵进度见文末，不应与下表混合计分：
 
 | task | baseline | Zetta/recovery | 可计分结论 |
 |---|---:|---:|---|
@@ -22,9 +22,9 @@
 ## 完成 Table 3 所需的正式证据
 
 1. 恢复可用的 LIBERO-Pro benchmark、Pi0.5 checkpoint 和 runtime 服务。
-2. 固定一个 setting 的 task0--task9 及其 10-task 评测协议。
+2. 固定四个 setting 各自的 task0--task9 及其 10-task 评测协议。
 3. 对每个 task 使用相同的预注册 seeds，分别运行 baseline 和 Zetta；只使用 LIBERO 官方 termination 计为成功。
-4. 对每个 task 计算 `successes / episodes × 100`，再计算十个 task rate 的 macro-average。
+4. 对每个 task 计算 `successes / episodes × 100`，再分别计算四组各十个 task rate 的 macro-average。
 5. 保存每个 episode 的 result JSON、视频、运行配置和聚合脚本输出，才能称为 Table 3 复现。
 
 ## 当前阻塞
@@ -1082,3 +1082,11 @@ runtime 健康接口 `heartbeat_failed=0`；GPU3 显存约 14.2/24.6 GB。
 延迟摘要及纯 VLA 无工具事件审计缺口为 0。因此暂时保留三个独立
 `--concurrency 1` worker，以后续更长窗口监控失败率和实际吞吐；
 这仍只调整执行并行度，不修改冻结的 2,000 logical ID 或任何门禁。
+
+三并发后的全矩阵审计：从 40 个冻结 manifest 重新推导全部 2,000 个
+development `(task, logical ID, seed, policy RNG)`，与 queue 四类 envelope
+逐一比对，观测到 2,000/2,000 logical ID、2,008 个 attempt job；
+8 条历史基础设施重试均为连续的 `attempt_index=0,1`，无缺失、额外
+logical ID、重复 job ID 或 seed/RNG 偏差。审计时 115 条 completed
+全部 `status=valid`，三路视频、延迟摘要及纯 VLA 无工具事件审计均无
+缺口；其余仍在 generation-0 baseline，不能报告任何 held-out SR。
