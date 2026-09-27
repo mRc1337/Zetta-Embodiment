@@ -853,3 +853,7 @@ controller 增加可显式指定、经过 task 名校验的 `--pause-task`，使
 task5 而继续处理其他 campaign；相关 3 项测试通过。矩阵 task2 原有 50 个
 job 仍在 `paused_task2/`，待独立 replay 结束后才释放。恢复 task5 前须先做
 同 EnvSpec 的非计分 reset 检查或安全重启 runtime，不得直接耗掉其 attempt-1。
+随后 task5 同 EnvSpec 的非计分 create/reset/close 均返回 `Ok`；旧 controller
+在休眠时退出且无残留锁，49 个隔离 job 原样回到 GPU3 待运行队列，controller
+恢复原调度配置。此操作只恢复基础设施可用性，不改任何 task5 seed、bundle
+或判定门限。
