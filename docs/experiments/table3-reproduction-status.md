@@ -1183,3 +1183,23 @@ attempt-0 `infra_invalid` 保留审计但不计入任务成功率。优先验证
 无暂停标志的 controller 已将两条有效 episode 写入各自的 append-only
 ledger 并继续运行。有效重试说明这两个 seed 已能通过
 正式 rollout，但不能单独证明空闲池上限就是原断连的根因。
+
+### v6 全矩阵 baseline 500/2000 阶段检查（2026-09-27 15:01 UTC）
+
+冻结的 40-task development 队列在三 worker / GPU3 下持续运行。此时
+`completed=500`、`running=3`、`pending=1497`、历史 `failed=11`；
+500 条 completed 全部为 `status=valid`，40 个任务均已有有效产物，
+每任务 11--14 条。逐条检查完成项的 episode record、三路非空 MP4 和
+`latency/summary.json` 无缺口。11 条 failed 均为早前保留的
+`infra_invalid` attempt，不是策略失败，不计入 success rate；其对应
+logical ID 的正式重试已经取得有效结果。对冻结 manifest 与 queue 的
+完整审计覆盖 2,000 个 `(task, logical ID)` 和 2,011 个 attempt：无缺失
+logical ID、seed/policy RNG 偏差或超出两次基础设施尝试预算。
+
+40 个 campaign 在此快照均仍为 `rollout`，没有 development baseline
+收齐、候选 gate 或可报告的 held-out 结果；`final-pure-vla` lane 尚未创建。
+最终纯 VLA watcher 只会在全部 40 个 evolution 终止后运行；Table 3
+报告器目前正确返回 `incomplete`，不会把 development 成功率误作论文结果。
+相关 watcher/报告器的 10 项单元测试通过。运行时健康接口 epoch 为
+`1790515957`，环境池上限运行时保持约 3 个活跃加 4 个空闲模拟器子进程；
+以上是阶段性基础设施和证据完整性检查，不是 Table 3 最终成绩。
