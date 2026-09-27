@@ -662,3 +662,30 @@ promoted bundle，也没有执行 held-out；held-out seeds 1--20 始终未触�
 `.local-repro/liberopro-paper-v3-codex-s20260922/campaigns/libero-10-s/task-01/state/`，覆盖 baseline、
 八轮 same-seed 和六轮 regression 的 episode/visual-evidence artifacts。视频、trajectory、
 privileged evidence 与 provider/worker 日志均不提交 Git；文档只记录聚合、seed-blind 结果。
+
+### LIBERO-10-S/task2 正式 Zetta recovery 阶段结果（2026-09-27）
+
+任务语言为 `turn on the stove and put the moka pot on it`。generation 0 baseline
+完成 50/50 valid，official success 为 0/50。主要失败模式是炉灶已开启，但 VLA 未稳定取得并
+搬运 moka pot。Stage1 对 post-stove grasp grounding/contact verification failure 的诊断
+置信度为 0.78。当前 recovery 由 proposal-only critic 检测早期空抓后交给在线 Role1 调用有界
+`privileged_pick_place`；官方 LIBERO termination 是唯一成功判据。
+
+| candidate SHA-256 前缀 | 机制 | same-seed candidate / parent | 严格因果救援 | regression candidate / parent | 判定 |
+|---|---|---:|---:|---:|---|
+| `934f0a3b9a55` | 原始语义 pick-place | 37/49 / 0/49 | 37/37 | 41/50 / 0/50 | regression reject |
+| `76f6e9c026f8` | 仅设 `vertical_first_carry=true` | 41/49 / 0/49 | 41/41 | 进行中 | same-seed pass |
+
+第一候选的 same-seed decision 为 `gate-c7443f46a27e9d5b1bb3`；其 regression decision
+为 `gate-3788dcdb7ee6f3e7610e`。虽然第一候选在 50 个开发种子中救援 41 次、无安全事件，
+冻结的 regression 规则要求解决全部历史失败种子，故不能提升。第二候选的 same-seed
+decision 为 `gate-46dcc4abb1ee17233390`：41/49 成功，高于冻结门槛 25/49，41 次成功均
+有 intervention attestation、parent failure 和动作分叉证据，安全事件为 0。
+
+第二候选运行中曾有 4 次 infrastructure-invalid attempt，其中 3 次和一个中断 lease 的
+部分结果对应 Codex Role1 请求返回 401 Unauthorized。这些尝试没有进入策略分母；凭据恢复
+经同模型最小调用验证后，supervisor 回收 lease、接纳 4 条失败审计记录，并在原定两次
+infrastructure attempt 预算内补发 4 个 attempt-1 job。重试后 49/49 candidate arms 均取得
+有效结果，未改动 seed、bundle 或门限。当前 phase 为 `regression_gate`，50 个开发种子
+candidate jobs 已入队；held-out seeds 1--20 尚未使用。本地 trajectory、视频和 Role1 日志仍
+保留在忽略的 campaign 目录中，不提交 Git。
