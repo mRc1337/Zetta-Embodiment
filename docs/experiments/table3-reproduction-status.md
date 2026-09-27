@@ -1051,5 +1051,22 @@ task language 分别为 `Put the cream cheese on the bowl`、
 截至 2026-09-27 12:01 UTC，queue 为 88 completed / 8 failed / 2 running /
 1,910 pending，8 条 failed 的同 logical ID attempt-1 均已入队；
 runtime 健康接口 `env_ranks_healthy=1`、`heartbeat_failed=0`。
-Goal-S task6–9 的正式同种子重试仍未完成，不能据非计分 reset 探针
-宣称其有效 episode 或任务成功。
+此时 Goal-S task6–9 的正式同种子重试尚未完成，不能据非计分 reset
+探针宣称其有效 episode 或任务成功。
+
+正式重试结果（2026-09-27 12:13 UTC）：在 queue 领取锁下将其他
+1,901 条 pending job 可逆暂存，仅优先调度上述 8 条
+`attempt_index=1`；这只是改变执行顺序，未改 seed、policy RNG、
+bundle、任务或评估门禁。8 条现已全部 `status=valid`，均与原
+`attempt_index=0` 的 task/logical ID/seed/policy RNG 逐项相符；
+三路视频、延迟摘要完整，纯 VLA 的工具事件为空，审计缺口为 0。
+task6 两条分别失败/失败，task7 成功/成功，task8 成功/失败，
+task9 失败/失败；合计纯 VLA 任务成功 3/8。这是 development baseline
+的一个极小样本，不是 Zetta recovery 效果，也不是 Table 3 留出集成绩。
+旧 8 条基础设施失败 attempt 保留审计记录，但有效 episode 由原 ID 的
+重试提供，不应重复计算。其余 1,901 条 job 已全部移回活跃队列；
+此时 99 completed / 8 historical failed / 2 running / 1,899 pending，
+冻结总数 2,000 logical ID、2,008 attempt job 不变。
+控制器随后已在四个 Goal-S campaign 的 append-only episode ledger
+各记录两条 `status=valid`、`attempt_index=1` 的正式 episode，
+确认不是仅停留在 queue 的完成文件。
