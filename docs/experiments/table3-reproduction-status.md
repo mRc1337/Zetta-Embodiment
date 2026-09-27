@@ -956,6 +956,14 @@ GPU3 并行试运行（2026-09-27）：v6 原单 worker 已完成 13 条有效 b
 如后续超时/失败率上升，应撤回第二 worker 并按原 logical ID 重试基础设施
 attempt，不能改用失败任务的其他种子代替。
 
+继续并行验证：在双 worker 累计 27 条有效、0 条失败后，第三个 `--once`
+worker 与原两条重叠执行 `libero_10_task/task9`，约 181 秒有效结束；同期
+task7/task8 也有效结束，累计 30 条有效、0 条 queue failure，runtime
+健康且 GPU3 显存仅小幅波动。现以 3 个独立 `--concurrency 1` worker
+常驻同一 GPU3 queue；这只是调度并行度调整，不扩展 runtime 的 4-session
+硬上限，也不修改任何 campaign manifest 或测试种子。后续继续监控长时间
+infra-invalid、401、心跳与显存，一旦恶化先撤回新增 worker。
+
 跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
 `heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
 但旧跨代恢复函数错误地再次要求 held-out decision 的 `passed=true`。
