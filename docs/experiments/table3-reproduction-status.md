@@ -1124,3 +1124,17 @@ controller 入账。其余 1,784+47 条原 job 已全部原样恢复，三 worke
 和无暂停标志的 controller 重新运行。此维护没有更换 seed、bundle、
 任务目标或门禁；若旧池失效再现，应先隔离受影响 task 而非盲目耗尽
 最后一次 attempt。
+
+防止环境池持续中毒的基础设施热修复提交 `e7f4ff3`：EnvWorker
+在 core 调用出现 `BrokenPipeError`、`ConnectionResetError` 或
+`EOFError` 时将该池标记为 unhealthy；仍绑定的 session 未释放时
+拒绝把同一池交给新 session，最后一个绑定释放后才关闭旧池并按相同
+env spec 建立新池。普通 reset 参数错误不会触发回收；61 项相关
+runtime 测试通过。它不替代 queue 的正式 infra-invalid attempt 记录，
+也不会在同一 attempt 内暗中改变 seed/episode。
+在安全维护窗口将 1,808 条待领取 job 可逆暂存，三条运行中 rollout
+自然收尾后切换 runtime；新健康接口 epoch 为 `1790514475`，
+三 worker 和 controller 均已恢复，1,808 条 job 全数移回。
+切换后的 192 条 completed 均 `valid`，三路视频与延迟摘要缺口为 0，
+failed 仍为 9 条历史基础设施 attempt；上述自愈分支目前仅有
+单元回归验证，尚未以真实新故障验证其现场触发效果。
