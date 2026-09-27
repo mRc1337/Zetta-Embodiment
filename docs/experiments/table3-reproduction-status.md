@@ -735,3 +735,12 @@ Table 3 成绩。第四候选未完成的 44 个 job 已可恢复地归档，v3 
 一致，B 不同。接下来必须在全新 campaign 中重跑 baseline、same-seed、按来源失败簇
 的 historical regression，最后才可使用预留 held-out seeds；v3 的 401 重试虽已恢复
 有效运行，却不能修复上述随机种子缺陷。
+
+新一轮重跑已经启动：`094d9532a9e2e1448a10b70882a397abd32a7dee` 代码版本的
+`liberopro-paper-v4-libero-10-s-t02-replay` campaign，复用 v3 冻结的 50/20 seed
+划分，但重新生成 baseline 证据；`regression_scope=target_cluster`，held-out 仍为
+`test` 模式。首个 baseline（development seed 16101）已完成，episode `valid`、
+official success=false，视频和轨迹保存在本地新 campaign 的 `state/attempts/` 下。
+其余 baseline 正由 GPU3 单 worker 执行，尚无可报告的 recovery 或 Table 3 成绩。
+同级 `task-02` 是一次未执行的预注册草稿，code_commit 写错；正式重跑目录仅为
+`task-02-replay`，该草稿不得计分。
