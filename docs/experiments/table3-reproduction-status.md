@@ -675,7 +675,8 @@ privileged evidence 与 provider/worker 日志均不提交 Git；文档只记录
 |---|---|---:|---:|---:|---|
 | `934f0a3b9a55` | 原始语义 pick-place | 37/49 / 0/49 | 37/37 | 41/50 / 0/50 | regression reject |
 | `76f6e9c026f8` | 仅设 `vertical_first_carry=true` | 41/49 / 0/49 | 41/41 | 3/4 observed / 0/50 parent；46 未执行 | regression early reject |
-| `d10b51cf69c8` | 保留 vertical-first，仅将 `grasp_confirm_steps` 从 4 增至 8 | 进行中 | 进行中 | 未运行 | same-seed 进行中 |
+| `d10b51cf69c8` | 保留 vertical-first，仅将 `grasp_confirm_steps` 从 4 增至 8 | 37/49 / 0/49 | 37/37 | 4/5 observed / 0/50 parent；45 未执行 | regression early reject |
+| `62a611fae41d` | 保留 recovery，将空抓 critic 的 dwell 从 4 降至 1 | 进行中 | 进行中 | 未运行 | same-seed 进行中 |
 
 第一候选的 same-seed decision 为 `gate-c7443f46a27e9d5b1bb3`；其 regression decision
 为 `gate-3788dcdb7ee6f3e7610e`。虽然第一候选在 50 个开发种子中救援 41 次、无安全事件，
@@ -708,3 +709,14 @@ campaign 的冻结 manifest 没有 `regression_scope` 字段，继续保留原�
 新 `EvolutionProtocol` 默认使用此论文一致模式。本任务主簇包含 49/50 个开发失败，
 另 1 个失败在次簇。此前两轮候选的拒绝结果不因本次代码修改而改变；后续新 campaign
 若采用按簇回归，必须重新预注册并独立报告，不能与 v3 的 50-seed regression 混算。
+
+第三候选同种子 gate 已正式通过（decision `gate-49d53e84ce1f4cb67f27`）：49/49
+candidate arms 有效，37 次成功均满足严格因果归因，parent 0/49，安全事件 0。
+随后冻结 50-seed regression 的前 5 个 candidate arms 全部有效，4 成功、1 失败；
+失败对应的 candidate 未触发 critic、无闭合夹爪命令、未抓起 moka pot。按冻结的 50/50
+规则，supervisor 以 `gate-adec1220c8b84cc12e9b` 提前拒绝，余下 45 个未执行 job 已
+原样归档到本地 `queue/cancelled/local/`；held-out seeds 1--20 仍未使用。代码据此修正
+Stage2 refinement：当 regression 失败样本没有 intervention 时，下一候选须改进 critic
+覆盖，而不能强制仅修改 recovery。该判断只使用正式 regression plan 与有效 episode
+ledger；相关 70 项测试通过。第四候选 `62a611fae41d...` 已进入同种子 gate，其 dwell=1
+假设针对短暂空抓，但不能确定覆盖上述完全无闭合命令的反例，仍须按正式 gate 验证。

@@ -24,6 +24,7 @@ from zetta.evolution.lifecycle import (
     _frozen_same_seed_pass_rate,
     _paired_causal_attribution_summary,
     _record_candidate_feature_contract_rejection,
+    _regression_untriggered_failure_count,
     _recover_unadvanced_candidate,
     _rejected_candidates_for_cluster,
     _rejected_gate_refinement_context,
@@ -371,9 +372,11 @@ def test_shadow_rejection_keeps_prior_live_causal_history(monkeypatch) -> None:
     ] == recovery_steps
 
 
-def test_regression_rejection_preserves_same_seed_qualified_critic(
+@pytest.mark.parametrize("untriggered_failures", [0, 1])
+def test_regression_rejection_refines_the_failing_layer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    untriggered_failures: int,
 ) -> None:
     diagnosis = _diagnosis()
     candidate = _candidate(candidate_id="regression-reject", diagnosis=diagnosis)
@@ -451,6 +454,10 @@ def test_regression_rejection_preserves_same_seed_qualified_critic(
         "zetta.evolution.lifecycle._same_seed_causal_history_detail",
         lambda *_args, **_kwargs: causal_detail,
     )
+    monkeypatch.setattr(
+        "zetta.evolution.lifecycle._regression_untriggered_failure_count",
+        lambda *_args, **_kwargs: untriggered_failures,
+    )
 
     context = _rejected_gate_refinement_context(  # type: ignore[arg-type]
         Store(), artifact_index={"artifacts": []}
@@ -468,12 +475,61 @@ def test_regression_rejection_preserves_same_seed_qualified_critic(
             "unattributed_candidate_win_count",
         )
     }
-    directive = context["causal_isolation_directive"]
-    assert directive["mode"] == "preserve_regression_qualified_trigger_refine_recovery"
-    assert directive["preserve_critic_rules_byte_for_byte"] == causal_detail[
-        "critic_rules"
-    ]
-    assert "reuse_recovery_steps_byte_for_byte" not in directive
+    assert context["paired_gate_result"][
+        "observed_failure_without_intervention_count"
+    ] == untriggered_failures
+    if untriggered_failures:
+        assert "causal_isolation_directive" not in context
+        assert "refine the critic" in context["required_change"]
+    else:
+        directive = context["causal_isolation_directive"]
+        assert directive["mode"] == "preserve_regression_qualified_trigger_refine_recovery"
+        assert directive["preserve_critic_rules_byte_for_byte"] == causal_detail[
+            "critic_rules"
+        ]
+        assert "reuse_recovery_steps_byte_for_byte" not in directive
+
+
+def test_regression_untriggered_failure_count_uses_accepted_candidate_arms(
+    tmp_path: Path,
+) -> None:
+    sha = "c" * 64
+    gate_root = tmp_path / "candidates" / sha / "gates/regression"
+    atomic_write_json(
+        gate_root / "plan.json",
+        {
+            "candidate_sha256": sha,
+            "pairs": [
+                {"logical_ids": {"candidate": "pair-0-candidate"}},
+                {"logical_ids": {"candidate": "pair-1-candidate"}},
+            ],
+        },
+        overwrite=False,
+    )
+    valid = AppendOnlyLedger(gate_root / "ledgers/valid.jsonl", key="logical_id")
+    for index, intervened in enumerate((False, True)):
+        record = EpisodeRecord(
+            episode_id=f"episode-{index}",
+            logical_id=f"pair-{index}-candidate",
+            generation=0,
+            seed=index + 10,
+            policy_rng=index + 100,
+            bundle_sha256=sha,
+            status="valid",
+            success=False,
+            started_at="2026-01-01T00:00:00+00:00",
+            finished_at="2026-01-01T00:00:01+00:00",
+            elapsed_s=1.0,
+            artifact_index={"candidate_intervention": intervened},
+        )
+        valid.append(record.as_dict())
+
+    class Store:
+        root = tmp_path
+
+    assert _regression_untriggered_failure_count(  # type: ignore[arg-type]
+        Store(), candidate_sha256=sha
+    ) == 1
 
 
 def test_causal_isolation_is_literal_in_stage2_output_contract() -> None:

@@ -2400,6 +2400,44 @@ def _rejected_same_seed_causal_history(
     return summary, history_details, history_by_candidate
 
 
+def _regression_untriggered_failure_count(
+    store: CampaignStore, *, candidate_sha256: str
+) -> int:
+    """Count observed valid regression failures that never invoked recovery.
+
+    This uses only the immutable gate plan and accepted episode ledger. A
+    failed rollout without an intervention cannot be repaired by changing the
+    recovery alone, even when the same critic rescued other seeds.
+    """
+
+    gate_root = store.root / "candidates" / candidate_sha256 / "gates/regression"
+    plan_path = gate_root / "plan.json"
+    if not plan_path.is_file():
+        return 0
+    plan = read_json(plan_path)
+    if plan.get("candidate_sha256") != candidate_sha256:
+        raise ValueError("regression plan belongs to another candidate")
+    candidate_ids = {
+        str(pair["logical_ids"]["candidate"])
+        for pair in plan.get("pairs", ())
+    }
+    if not candidate_ids:
+        raise ValueError("regression plan has no candidate arms")
+    rows = AppendOnlyLedger(
+        gate_root / "ledgers/valid.jsonl", key="logical_id"
+    ).records()
+    count = 0
+    for row in rows:
+        if row.get("logical_id") not in candidate_ids:
+            continue
+        record = EpisodeRecord.from_dict(row)
+        if record.status != "valid":
+            raise ValueError("regression valid ledger contains an invalid arm")
+        if not record.success and not _candidate_intervened(record):
+            count += 1
+    return count
+
+
 def _rejected_gate_refinement_context(
     store: CampaignStore,
     *,
@@ -2600,6 +2638,12 @@ def _rejected_gate_refinement_context(
     )
     context["rejected_gate_history"] = history_summary
     if decision_kind == "regression":
+        untriggered_failures = _regression_untriggered_failure_count(
+            store, candidate_sha256=candidate_sha256
+        )
+        context["paired_gate_result"][
+            "observed_failure_without_intervention_count"
+        ] = untriggered_failures
         context["same_seed_qualification"] = {
             key: current_history[key]
             for key in (
@@ -2625,13 +2669,20 @@ def _rejected_gate_refinement_context(
                     current_history["causally_attributed_success_count"]
                 ),
             }
-            if isinstance(critic_rules, list)
+            if untriggered_failures == 0
+            and isinstance(critic_rules, list)
             and critic_rules
             and int(current_history["causally_attributed_success_count"]) > 0
             else None
         )
         context["required_change"] = (
-            "Use the paired regression evidence to materially refine recovery "
+            "The regression failure did not trigger an intervention. Materially "
+            "refine the critic's observable failure coverage, then link it to "
+            "a bounded executable recovery. A recovery-only parameter change "
+            "cannot address this failure. Revalidate previously rescued seeds "
+            "and every frozen historical seed."
+            if untriggered_failures
+            else "Use the paired regression evidence to materially refine recovery "
             "behavior while preserving the Same-seed-qualified critic. The "
             "next candidate must still pass every frozen historical seed."
         )
