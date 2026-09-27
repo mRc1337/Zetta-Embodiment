@@ -15,7 +15,7 @@ import pytest
 from rollout_runtime.api.enums import ErrorCode
 from rollout_runtime.api.errors import RuntimeApiError, make_error
 from rollout_runtime.api.ids import SessionId
-from rollout_runtime.api.messages import CreateSessionRequest
+from rollout_runtime.api.messages import CreateSessionRequest, ResetSpec
 from rollout_runtime.api.result import Err, Ok, unwrap
 from rollout_runtime.backends.fake.env import register_fake_env_family
 from rollout_runtime.launch.local import build_local_components
@@ -62,6 +62,65 @@ async def test_envpool_reuses_warm_slot_before_cold_creation(fake_env_spec: Any)
     assert pool.active_slots == {0}
     assert pool.warm_free_slots == []
 
+    await worker.aclose()
+
+
+async def test_dead_simulator_pipe_retires_pool_after_session_release(
+    fake_env_spec: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = RuntimeEnvWorker(supported_families=("fake",))
+    spec = fake_env_spec(pool_size=1)
+    first_session = SessionId("broken-pipe")
+    await worker.create_binding(first_session, spec, lease_expiration=10.0)
+    old_pool = worker.pools.find(spec.digest())
+    assert old_pool is not None
+
+    def dead_reset(*_args: Any) -> None:
+        raise BrokenPipeError("simulator child exited")
+
+    monkeypatch.setattr(old_pool.core, "reset", dead_reset)
+    with pytest.raises(RuntimeApiError) as error:
+        await worker.reset(first_session, ResetSpec(seed=17))
+    assert error.value.info.code is ErrorCode.ENV_FAILURE
+    assert old_pool.unhealthy is True
+
+    # A still-bound session must not be replaced underneath its caller.
+    with pytest.raises(RuntimeApiError, match="dead simulator pipe"):
+        await worker.create_binding(
+            SessionId("too-early"), spec, lease_expiration=10.0
+        )
+
+    await worker.release_binding(first_session)
+    await worker.create_binding(SessionId("fresh"), spec, lease_expiration=10.0)
+    fresh_pool = worker.pools.find(spec.digest())
+    assert fresh_pool is not None and fresh_pool is not old_pool
+    assert old_pool.core is None
+    await worker.reset(SessionId("fresh"), ResetSpec(seed=17))
+    await worker.aclose()
+
+
+async def test_non_transport_reset_error_keeps_warm_pool(
+    fake_env_spec: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = RuntimeEnvWorker(supported_families=("fake",))
+    spec = fake_env_spec(pool_size=1)
+    session = SessionId("bad-reset")
+    await worker.create_binding(session, spec, lease_expiration=10.0)
+    pool = worker.pools.find(spec.digest())
+    assert pool is not None
+
+    def invalid_reset(*_args: Any) -> None:
+        raise ValueError("invalid reset arguments")
+
+    original_reset = pool.core.reset
+    monkeypatch.setattr(pool.core, "reset", invalid_reset)
+    with pytest.raises(RuntimeApiError):
+        await worker.reset(session, ResetSpec(seed=17))
+    assert pool.unhealthy is False
+    monkeypatch.setattr(pool.core, "reset", original_reset)
+    await worker.release_binding(session)
+    await worker.create_binding(SessionId("reused"), spec, lease_expiration=10.0)
+    assert worker.pools.find(spec.digest()) is pool
     await worker.aclose()
 
 

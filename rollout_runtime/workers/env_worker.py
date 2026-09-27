@@ -255,6 +255,9 @@ class EnvPool:
         self.warm_free_slots: list[int] = list(range(env_spec.pool_size))
         self.active_slots: set[int] = set()
         self.core: Any = core
+        # A dead simulator subprocess leaves its pipe in the pool. Returning
+        # that warm slot to the next session would make every later reset fail.
+        self.unhealthy = False
         # **All** core calls on a vector pool must be serialized: a vector env for
         # a GPU-batched family is a state machine, and concurrent partial resets
         # break it outright (ManiSkill's observed error is "Once _gpu_apply_all is
@@ -1881,14 +1884,21 @@ class RuntimeEnvWorker:
         Returns:
             The execution core's return value.
         """
-        if not pool.lockstep:
-            return await self._call_core(
-                fn, *args, side_effect_applied=side_effect_applied
-            )
-        async with pool.core_lock:
-            return await self._call_core(
-                fn, *args, side_effect_applied=side_effect_applied
-            )
+        try:
+            if not pool.lockstep:
+                return await self._call_core(
+                    fn, *args, side_effect_applied=side_effect_applied
+                )
+            async with pool.core_lock:
+                return await self._call_core(
+                    fn, *args, side_effect_applied=side_effect_applied
+                )
+        except RuntimeApiError as exc:
+            if isinstance(
+                exc.__cause__, (BrokenPipeError, ConnectionResetError, EOFError)
+            ):
+                pool.unhealthy = True
+            raise
 
     async def _call_core(
         self, fn: Callable[..., Any], *args: Any, side_effect_applied: bool = False
@@ -2028,7 +2038,11 @@ class RuntimeEnvWorker:
         """
         pool_key = env_spec.digest()
         existing = self.pools.find(pool_key)
-        if existing is not None and existing.core is not None:
+        if (
+            existing is not None
+            and existing.core is not None
+            and not existing.unhealthy
+        ):
             return existing
         lock = self._pool_locks.get(pool_key)
         if lock is None:
@@ -2039,7 +2053,24 @@ class RuntimeEnvWorker:
             # waited for the lock.
             existing = self.pools.find(pool_key)
             if existing is not None and existing.core is not None:
-                return existing
+                if not existing.unhealthy:
+                    return existing
+                if existing.in_use:
+                    raise RuntimeApiError(
+                        make_error(
+                            ErrorCode.ENV_FAILURE,
+                            "env pool has a dead simulator pipe; retry after "
+                            "active sessions close",
+                            pool_key=pool_key,
+                        )
+                    )
+                # Only retire the pool after its last bound session has
+                # released its slot. Building the same digest now creates a
+                # fresh simulator subprocess without changing the reset seed.
+                with contextlib.suppress(BaseException):
+                    await asyncio.to_thread(existing.close)
+                if self.pools.find(pool_key) is existing:
+                    self.pools.pools.pop(pool_key, None)
             return await asyncio.to_thread(self.pools.ensure_pool, env_spec)
 
     async def release_binding(self, session_id: SessionId) -> None:
