@@ -941,7 +941,17 @@ Zetta 都记为纯 VLA 的实测成功数；若证据缺失则继续返回 `inco
 当前 v6 尚有 40 个未终态任务，该路径的只读前置检查返回
 `waiting_for_evolution`，未消费任何 held-out seed。全部演化完成后用
 `python -m scripts.evolution.run_liberopro_final_pure_vla --matrix-root .local-repro/liberopro-paper-v6-matrix-20260927`
-启动或重复运行该可恢复的最终测试路径，并继续让同一 GPU3 queue worker
+启动或重复运行该可恢复的最终测试路径，并继续让 GPU3 queue worker
 处理新增 rollout。加 `--watch --poll-s 300` 可持续等待 40 个任务终态，
 随后自动排队、收集至全部无晋升任务的 20 个有效最终测试完成；如基础设施
 重试预算耗尽，会以非零状态退出并列出受阻任务，不会默默丢掉分母。
+
+GPU3 并行试运行（2026-09-27）：v6 原单 worker 已完成 13 条有效 baseline，
+0 条 queue failure。检查 queue 的主机级领取锁和 runtime 的 4-session 上限后，
+启动第二个 `--once` worker；它与原 worker 同时处理不同的 task，试跑任务
+`libero_10_swap/task4` 约 164 秒有效结束，原 worker 同期的 task3/task5
+也有效结束，runtime `/healthz` 正常，GPU3 显存未增长，未见 infra-invalid。
+据此继续用两个独立 `--concurrency 1` 的 GPU3 worker 处理同一冻结队列；
+增加的是执行并行度，未改 manifest、种子、policy RNG、任务目标或 gate。
+如后续超时/失败率上升，应撤回第二 worker 并按原 logical ID 重试基础设施
+attempt，不能改用失败任务的其他种子代替。
