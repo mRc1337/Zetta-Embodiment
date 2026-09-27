@@ -909,3 +909,13 @@ gripper contact 或 grasp，BDDL 满足目标仍为 1/2。三路 MP4 已留在
 `.local-repro/non-scored-prompt-fix-smoke-20260927/task2-seed22035/videos/`。
 这证明提示词现在确实改变动作，同时也只说明这个单种子 prompt-only 救援
 仍失败；正式是否采用新的语义抓取恢复须由新 campaign 的完整门禁判定。
+
+预算与跨代调度修订提交 `b04bd20673f9467f5e26b3d0c8d8db9e3aa6c8cf`
+已推送，97 项相关测试通过。全新正式候选矩阵为
+`.local-repro/liberopro-paper-v6-matrix-20260927/`：40 个任务全部重新预注册，
+50 个 development / 20 个 held-out seeds、逐种子 policy RNG 与 v5 完全一致；
+显式候选预算为 15 轮，同种子和历史回归门禁不变，held-out 仍为只报告的
+`test` 模式。40 个 campaign 已初始化，GPU3 单 worker 与跨代 round-robin
+controller 已开始新的 generation-0 baseline。v5 仅留下 3 条已完成的
+探索性 baseline 和未消费的队列记录，不作为 v6 分母。v6 尚无可报告的
+Table 3 held-out 成绩。
