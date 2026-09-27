@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
-from scripts.evolution.report_liberopro_table3 import summarize
+from scripts.evolution.report_liberopro_table3 import _score_task, summarize
 from zetta.evolution.jsonio import canonical_sha256
 
 
@@ -126,3 +128,122 @@ def test_report_rejects_nonbaseline_parent_arm(tmp_path: Path) -> None:
     assert report["status"] == "incomplete"
     assert report["completed_tasks"] == 39
     assert "pure-VLA" in report["incomplete"][0]["reason"]
+
+
+def test_report_scores_final_promoted_generation_not_completed_parent(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    parent_manifest = json.loads((campaign / "manifest.json").read_text())
+    child = campaign / "state/children/generation-0001"
+    child_manifest = {
+        **parent_manifest,
+        "generation": 1,
+        "active_bundle_sha256": CANDIDATE,
+        "parent_bundle_sha256": CANDIDATE,
+        "baseline_mode": "active_bundle",
+    }
+    _write_json(child / "manifest.json", child_manifest)
+    _write_json(child / "state.json", {"phase": "complete"})
+    _write_json(
+        campaign / "state/analysis/generation-continuation.json",
+        {
+            "parent_manifest_sha256": canonical_sha256(parent_manifest),
+            "child_manifest_sha256": canonical_sha256(child_manifest),
+            "child_campaign_root": str(child),
+            "child_generation": 1,
+            "promoted_bundle_sha256": CANDIDATE,
+        },
+    )
+    result = _score_task(campaign, row, COMMIT)
+    assert result["baseline_successes"] == 4
+    assert result["zetta_successes"] == 10
+    assert result["final_generation"] == 1
+
+    handoff = campaign / "state/analysis/generation-continuation.json"
+    payload = json.loads(handoff.read_text())
+    payload["promoted_bundle_sha256"] = "c" * 64
+    _write_json(handoff, payload)
+    with pytest.raises(ValueError, match="child binding"):
+        _score_task(campaign, row, COMMIT)
+
+
+def test_report_uses_last_gate_after_two_promotions(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    root_manifest = json.loads((campaign / "manifest.json").read_text())
+    g1 = campaign / "state/children/generation-0001"
+    g1_manifest = {
+        **root_manifest,
+        "generation": 1,
+        "active_bundle_sha256": CANDIDATE,
+        "parent_bundle_sha256": CANDIDATE,
+        "baseline_mode": "active_bundle",
+    }
+    _write_json(g1 / "manifest.json", g1_manifest)
+    _write_json(g1 / "state.json", {"phase": "complete"})
+    _write_json(
+        campaign / "state/analysis/generation-continuation.json",
+        {
+            "parent_manifest_sha256": canonical_sha256(root_manifest),
+            "child_manifest_sha256": canonical_sha256(g1_manifest),
+            "child_campaign_root": str(g1),
+            "child_generation": 1,
+            "promoted_bundle_sha256": CANDIDATE,
+        },
+    )
+
+    final_candidate = "d" * 64
+    original_gate = campaign / "state/candidates" / CANDIDATE / "gates/heldout_20"
+    final_gate = g1 / "candidates" / final_candidate / "gates/heldout_20"
+    plan = json.loads((original_gate / "plan.json").read_text())
+    plan["candidate_sha256"] = final_candidate
+    plan["parent_sha256"] = CANDIDATE
+    plan["manifest_sha256"] = canonical_sha256(g1_manifest)
+    _write_json(final_gate / "plan.json", plan)
+    records = [json.loads(line) for line in (original_gate / "ledgers/valid.jsonl").read_text().splitlines()]
+    for record in records:
+        record["generation"] = 1
+        seed = record["seed"]
+        if record["logical_id"].endswith("-parent"):
+            record["bundle_sha256"] = CANDIDATE
+            record["success"] = seed <= 10
+        else:
+            record["bundle_sha256"] = final_candidate
+            record["success"] = seed <= 15
+    valid = final_gate / "ledgers/valid.jsonl"
+    valid.parent.mkdir(parents=True, exist_ok=True)
+    valid.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+    decision = g1 / "ledgers/gates.jsonl"
+    decision.parent.mkdir(parents=True, exist_ok=True)
+    decision.write_text(json.dumps({
+        "kind": "heldout_20",
+        "candidate_sha256": final_candidate,
+        "paired_count": 20,
+        "parent_successes": 10,
+        "candidate_successes": 15,
+    }) + "\n", encoding="utf-8")
+    g2 = g1 / "children/generation-0002"
+    g2_manifest = {
+        **g1_manifest,
+        "generation": 2,
+        "active_bundle_sha256": final_candidate,
+        "parent_bundle_sha256": final_candidate,
+    }
+    _write_json(g2 / "manifest.json", g2_manifest)
+    _write_json(g2 / "state.json", {"phase": "complete"})
+    _write_json(
+        g1 / "analysis/generation-continuation.json",
+        {
+            "parent_manifest_sha256": canonical_sha256(g1_manifest),
+            "child_manifest_sha256": canonical_sha256(g2_manifest),
+            "child_campaign_root": str(g2),
+            "child_generation": 2,
+            "promoted_bundle_sha256": final_candidate,
+        },
+    )
+
+    result = _score_task(campaign, row, COMMIT)
+    assert result["baseline_successes"] == 4
+    assert result["zetta_successes"] == 15
+    assert result["final_generation"] == 2
+    assert result["candidate_sha256"] == final_candidate

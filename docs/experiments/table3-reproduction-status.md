@@ -919,3 +919,13 @@ gripper contact 或 grasp，BDDL 满足目标仍为 1/2。三路 MP4 已留在
 controller 已开始新的 generation-0 baseline。v5 仅留下 3 条已完成的
 探索性 baseline 和未消费的队列记录，不作为 v6 分母。v6 尚无可报告的
 Table 3 held-out 成绩。
+
+汇总器复核：旧 `report_liberopro_table3.py` 只接受 generation 0 的一条
+held-out gate；即使矩阵跨代 promotion 成功，也会误报为不完整或只显示早期
+候选。现改为沿不可变 generation continuation 核验代际链，使用第 0 代
+held-out parent arm 作为 pure-VLA 对照、最后一次 promotion 的 held-out
+candidate arm 作为最终 Zetta harness，并校验同一 1--20 seeds 的 policy RNG、
+manifest/交接 digest、40 条有效 arm、视频、延迟摘要与 gate decision。
+两次晋升的回归测试确认只取最终候选；当前 v6 仍运行时，汇总器严格返回
+`incomplete`（0/40），不产生虚假的 Table 3 平均值。若某任务从未晋升且
+没有纯 VLA held-out 测试，汇总器仍会拒绝报告，需补齐真实最终测试证据。

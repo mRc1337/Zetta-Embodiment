@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fail-closed, read-only Table 3 report from frozen LIBERO-Pro held-out gates.
 
-Only the 20 paired test seeds of a completed generation-0 campaign are scored.
-Development rollouts, incomplete gates, and non-pure-VLA parent arms never
-contribute to a reported success rate.
+Score the pure-VLA control from generation 0 and the final promoted harness
+from its own held-out gate. Development rollouts and intermediate harnesses
+never contribute to the reported success rate.
 """
 
 from __future__ import annotations
@@ -45,44 +45,91 @@ def _artifact(path_value: Any, *, campaign_root: Path) -> None:
         raise ValueError("held-out evidence is missing or empty")
 
 
-def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> dict[str, Any]:
-    manifest = read_json(campaign_root / "manifest.json")
-    state = read_json(campaign_root / "state/state.json")
-    if manifest.get("code_commit") != code_commit or state.get("phase") != "complete":
-        raise ValueError("campaign code commit or terminal phase differs")
-    if manifest.get("task") != row["task"] or manifest.get("generation") != 0:
-        raise ValueError("campaign task or generation differs")
-    if manifest.get("heldout_seeds") != list(range(1, 21)):
-        raise ValueError("campaign lacks the fixed 1--20 held-out seeds")
-    development = manifest.get("rollout_seeds")
-    if (
-        not isinstance(development, list)
-        or len(development) != 50
-        or len(set(development)) != 50
-        or set(development) & set(range(1, 21))
-        or development != row.get("development_seeds")
-    ):
-        raise ValueError("campaign development schedule is missing or changed")
-    if set(manifest.get("policy_rng_by_seed", {})) != {
-        str(seed) for seed in (*development, *range(1, 21))
-    }:
-        raise ValueError("campaign policy RNG schedule is incomplete")
-    policy = manifest.get("runtime", {}).get("evolution_policy", {})
-    if policy.get("heldout_mode") != "test" or policy.get("regression_scope") != "target_cluster":
-        raise ValueError("campaign held-out or regression policy differs")
+def _lineage(
+    campaign_root: Path, row: dict[str, Any], code_commit: str
+) -> list[tuple[Path, dict[str, Any]]]:
+    """Follow immutable promotion handoffs to the terminal harness generation."""
 
-    gates = list((campaign_root / "state/candidates").glob("*/gates/heldout_20/plan.json"))
-    if len(gates) != 1:
-        raise ValueError(f"expected one completed held-out gate; found {len(gates)}")
-    gate_root = gates[0].parent
-    plan = read_json(gates[0])
-    candidate_sha = gate_root.parent.parent.name
+    original = read_json(campaign_root / "manifest.json")
+    if original.get("code_commit") != code_commit:
+        raise ValueError("campaign code commit differs")
+    current = (campaign_root / "state").resolve()
+    visited: set[Path] = set()
+    nodes: list[tuple[Path, dict[str, Any]]] = []
+    while True:
+        if current in visited or not current.is_relative_to(campaign_root.resolve()):
+            raise ValueError("generation continuation escapes campaign or cycles")
+        visited.add(current)
+        stored = current / "manifest.json"
+        manifest = read_json(stored) if stored.is_file() else original
+        state = read_json(current / "state.json")
+        if (
+            manifest.get("code_commit") != code_commit
+            or manifest.get("task") != row["task"]
+            or manifest.get("generation") != len(nodes)
+        ):
+            raise ValueError("generation code, task, or index differs")
+        if manifest.get("heldout_seeds") != list(range(1, 21)):
+            raise ValueError("generation lacks the fixed 1--20 held-out seeds")
+        if any(
+            manifest.get("policy_rng_by_seed", {}).get(str(seed))
+            != original.get("policy_rng_by_seed", {}).get(str(seed))
+            for seed in range(1, 21)
+        ):
+            raise ValueError("generation changed held-out policy RNG")
+        if not nodes and canonical_sha256(manifest) != canonical_sha256(original):
+            raise ValueError("initial stored manifest differs from preregistration")
+        if state.get("phase") != "complete":
+            raise ValueError("final harness generation is not complete")
+        nodes.append((current, manifest))
+        handoff_path = current / "analysis/generation-continuation.json"
+        if not handoff_path.is_file():
+            return nodes
+        handoff = read_json(handoff_path)
+        if handoff.get("parent_manifest_sha256") != canonical_sha256(manifest):
+            raise ValueError("generation continuation parent digest differs")
+        child_value = handoff.get("child_campaign_root")
+        if not isinstance(child_value, str) or not child_value:
+            raise ValueError("generation continuation has no child root")
+        child = Path(child_value).resolve()
+        if not child.is_relative_to(campaign_root.resolve()):
+            raise ValueError("generation continuation escapes campaign")
+        child_manifest = read_json(child / "manifest.json")
+        promoted = handoff.get("promoted_bundle_sha256")
+        if (
+            handoff.get("child_manifest_sha256") != canonical_sha256(child_manifest)
+            or handoff.get("child_generation") != len(nodes)
+            or child_manifest.get("active_bundle_sha256") != promoted
+            or child_manifest.get("parent_bundle_sha256") != promoted
+            or child_manifest.get("baseline_mode") != "active_bundle"
+        ):
+            raise ValueError("generation continuation child binding differs")
+        current = child
+
+
+def _score_gate(
+    campaign_root: Path,
+    state_root: Path,
+    manifest: dict[str, Any],
+    candidate_sha: str,
+    parent_sha: str | None,
+) -> dict[str, int]:
+    """Validate one complete 20-pair gate against its frozen generation."""
+
+    gate_root = state_root / "candidates" / candidate_sha / "gates/heldout_20"
+    if not (gate_root / "plan.json").is_file():
+        raise ValueError("selected promoted candidate has no held-out gate")
+    plan = read_json(gate_root / "plan.json")
     if plan.get("kind") != "heldout_20" or plan.get("candidate_sha256") != candidate_sha:
         raise ValueError("held-out plan candidate identity differs")
     if plan.get("manifest_sha256") != canonical_sha256(manifest):
         raise ValueError("held-out plan manifest digest differs")
-    if plan.get("parent_sha256") is not None:
-        raise ValueError("held-out parent is not the pure-VLA baseline")
+    if plan.get("parent_sha256") != parent_sha:
+        raise ValueError(
+            "held-out parent is not the pure-VLA baseline"
+            if parent_sha is None
+            else "held-out parent bundle differs from generation harness"
+        )
     pairs = plan.get("pairs")
     if not isinstance(pairs, list) or len(pairs) != 20:
         raise ValueError("held-out plan does not contain exactly 20 pairs")
@@ -111,9 +158,10 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
             raise ValueError("held-out ledger contains a duplicate or unknown arm")
         observed.add(record.logical_id)
         seed, policy_rng, arm = expected[record.logical_id]
-        bundle_sha = candidate_sha if arm == "candidate" else None
+        bundle_sha = candidate_sha if arm == "candidate" else parent_sha
         if (
             record.status != "valid"
+            or record.generation != manifest["generation"]
             or record.seed != seed
             or record.policy_rng != policy_rng
             or record.bundle_sha256 != bundle_sha
@@ -129,7 +177,7 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
 
     decisions = [
         decision
-        for decision in _jsonl(campaign_root / "state/ledgers/gates.jsonl")
+        for decision in _jsonl(state_root / "ledgers/gates.jsonl")
         if decision.get("kind") == "heldout_20"
         and decision.get("candidate_sha256") == candidate_sha
     ]
@@ -142,14 +190,69 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
         or decision.get("candidate_successes") != successes["candidate"]
     ):
         raise ValueError("held-out decision contradicts valid episode evidence")
+    return successes
+
+
+def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> dict[str, Any]:
+    nodes = _lineage(campaign_root, row, code_commit)
+    manifest = nodes[0][1]
+    development = manifest.get("rollout_seeds")
+    if (
+        not isinstance(development, list)
+        or len(development) != 50
+        or len(set(development)) != 50
+        or set(development) & set(range(1, 21))
+        or development != row.get("development_seeds")
+    ):
+        raise ValueError("campaign development schedule is missing or changed")
+    if set(manifest.get("policy_rng_by_seed", {})) != {
+        str(seed) for seed in (*development, *range(1, 21))
+    }:
+        raise ValueError("campaign policy RNG schedule is incomplete")
+    policy = manifest.get("runtime", {}).get("evolution_policy", {})
+    if policy.get("heldout_mode") != "test" or policy.get("regression_scope") != "target_cluster":
+        raise ValueError("campaign held-out or regression policy differs")
+
+    if len(nodes) == 1:
+        gates = list((nodes[0][0] / "candidates").glob("*/gates/heldout_20/plan.json"))
+        if len(gates) != 1:
+            raise ValueError("final pure-VLA harness lacks a held-out test")
+        candidate_sha = gates[0].parents[2].name
+        measured = _score_gate(campaign_root, nodes[0][0], manifest, candidate_sha, None)
+        baseline_successes = measured["parent"]
+        zetta_successes = measured["candidate"]
+        final_generation = 0
+    else:
+        first_handoff = read_json(nodes[0][0] / "analysis/generation-continuation.json")
+        baseline = _score_gate(
+            campaign_root,
+            nodes[0][0],
+            manifest,
+            first_handoff["promoted_bundle_sha256"],
+            None,
+        )
+        source_root, source_manifest = nodes[-2]
+        last_handoff = read_json(source_root / "analysis/generation-continuation.json")
+        candidate_sha = last_handoff["promoted_bundle_sha256"]
+        final = _score_gate(
+            campaign_root,
+            source_root,
+            source_manifest,
+            candidate_sha,
+            source_manifest.get("active_bundle_sha256"),
+        )
+        baseline_successes = baseline["parent"]
+        zetta_successes = final["candidate"]
+        final_generation = nodes[-1][1]["generation"]
     return {
         "task_id": row["task_id"],
-        "baseline_successes": successes["parent"],
-        "zetta_successes": successes["candidate"],
+        "baseline_successes": baseline_successes,
+        "zetta_successes": zetta_successes,
         "episodes_per_method": 20,
-        "baseline_rate_pct": 5.0 * successes["parent"],
-        "zetta_rate_pct": 5.0 * successes["candidate"],
+        "baseline_rate_pct": 5.0 * baseline_successes,
+        "zetta_rate_pct": 5.0 * zetta_successes,
         "candidate_sha256": candidate_sha,
+        "final_generation": final_generation,
     }
 
 
