@@ -1138,3 +1138,11 @@ runtime 测试通过。它不替代 queue 的正式 infra-invalid attempt 记录
 切换后的 192 条 completed 均 `valid`，三路视频与延迟摘要缺口为 0，
 failed 仍为 9 条历史基础设施 attempt；上述自愈分支目前仅有
 单元回归验证，尚未以真实新故障验证其现场触发效果。
+
+切换后的下一轮正常任务轮转中，Goal-S task5 的下一冻结种子
+`g0000-rollout-003` / seed10569 在三并发下取得 `status=valid`、
+任务失败，三路视频与延迟摘要均齐全；随后由 controller 写入该
+campaign 的 append-only episode ledger。这验证了该任务的新环境池
+在正常队列调度中可用，不是非计分探针或 recovery 成功。截至此轮审计，
+225 条 completed 均 `valid`，证据缺口为 0，历史 failed 仍为 9 条；
+自动重建分支仍等待真实断管后的现场验证。
