@@ -229,3 +229,26 @@ def test_predict_action_batch_returns_chunk_and_metadata(loop: Any) -> None:
     assert client.calls[-1][0] == "policy_infer"
     request = client.calls[-1][1]
     assert request.inference_parameters["mode"] == "eval"
+    assert request.instruction_override is None
+
+
+def test_predict_action_batch_forwards_recovery_instruction(loop: Any) -> None:
+    client = _FakeRuntimeClient()
+
+    class _FakePolicyResult:
+        actions = encode_array(np.zeros((5, 7), dtype=np.float32))
+        model_version = "pi05-libero-sft"
+        observation_step_index = 114
+        auxiliary_outputs: dict[str, Any] = {}
+        info = {"policy_id": "pi05"}
+
+    client.next_extension_result = _FakePolicyResult()
+    model = LiberoRuntimeVLAClient(client, SessionId("session-a"), loop=loop)
+    model.predict_action_batch(
+        {"task_descriptions": "Pick up the silver moka pot, not the frying pan."}
+    )
+
+    request = client.calls[-1][1]
+    assert request.instruction_override == (
+        "Pick up the silver moka pot, not the frying pan."
+    )

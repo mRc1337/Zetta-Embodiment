@@ -108,12 +108,10 @@ class LiberoRuntimeVLAClient:
         """Infer one action chunk without touching the environment.
 
         Args:
-            env_obs: Unused directly — the Runtime always infers against its
-                own last-known session observation (the same one
-                ``LiberoRuntimeEnvClient``'s most recent ``reset``/
-                ``action_step`` produced), never a caller-supplied
-                observation. Accepted for interface parity with
-                ``VLAClient.predict_action_batch`` only.
+            env_obs: The Runtime uses its own last-known session observation
+                for images and state. Its ``task_descriptions`` is forwarded
+                as a per-request instruction override so Role1 recovery
+                prompts reach the policy without changing session state.
             mode: Accepted for interface parity; folded into
                 ``inference_parameters`` so a future policy backend can read
                 it, but ``rollout_runtime``'s ``rlinf_policy``/``groot_policy``
@@ -128,7 +126,9 @@ class LiberoRuntimeVLAClient:
         Raises:
             _RuntimePolicyError: ``policy_infer`` returned no action chunk.
         """
-        del env_obs  # see docstring: the Runtime infers against its own session state.
+        instruction = env_obs.get("task_descriptions")
+        if instruction is not None and not isinstance(instruction, str):
+            raise TypeError("task_descriptions must be a string for one LIBERO session")
         inference_parameters = dict(kwargs.get("inference_parameters") or {})
         inference_parameters.setdefault("mode", mode)
         result = _single(
@@ -137,6 +137,7 @@ class LiberoRuntimeVLAClient:
                     self._ids,
                     PolicyRequest(
                         policy_id=self._policy_id,
+                        instruction_override=instruction or None,
                         inference_parameters=inference_parameters,
                     ),
                 )

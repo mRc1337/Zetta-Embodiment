@@ -857,3 +857,23 @@ job 仍在 `paused_task2/`，待独立 replay 结束后才释放。恢复 task5 
 在休眠时退出且无残留锁，49 个隔离 job 原样回到 GPU3 待运行队列，controller
 恢复原调度配置。此操作只恢复基础设施可用性，不改任何 task5 seed、bundle
 或判定门限。
+
+### Runtime VLA recovery 指令未转发：v4 候选结果隔离（2026-09-27）
+
+复核 v4 task2 的首批有效 candidate 时，6 条 episode 均在第 114 步触发
+Role1、选择 `vla_execute` 并执行 320 个动作，官方成功为 0/6；离线真值中
+炉灶目标已满足，但 moka pot 从未被抓起。进一步沿调用链检查发现：
+`LiberoPrimitives._vlm_chunk` 把 recovery prompt 写入 `task_descriptions`，
+而 `LiberoRuntimeVLAClient.predict_action_batch` 随后丢弃整个调用方观测，
+没有把这条指令作为 `PolicyRequest.instruction_override` 送入 runtime。
+因此这些有效的仿真轨迹**并未执行预注册 bundle 所指定的 VLA 恢复提示词**；
+不能据其 0/6 推断该 recovery 策略无效，也不能用于同种子 gate 或 Table 3。
+
+修复将单环境 `task_descriptions` 原样作为 per-request instruction override
+传递；runtime backend 已支持此字段。适配器/后端相关 30 项测试通过，其中新增
+回归测试断言 recovery 指令确实出现在 `policy_infer` 请求中。旧 v4 task2
+worker、supervisor 和 v4 40-task matrix controller/worker 已停止，保留所有
+append-only 证据、失败尝试和冻结 manifest；停止时在途子进程允许完成落盘，
+但旧队列不再作为正式策略判定继续推进。下一轮须用新代码版本重新预注册并
+重跑；旧 v3 的 401 重试仍保留历史审计记录，但 v3 随机种子缺陷和本次 v4
+prompt plumbing 缺陷均不能靠重释旧结果修复。
