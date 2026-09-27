@@ -1070,3 +1070,15 @@ task9 失败/失败；合计纯 VLA 任务成功 3/8。这是 development baseli
 控制器随后已在四个 Goal-S campaign 的 append-only episode ledger
 各记录两条 `status=valid`、`attempt_index=1` 的正式 episode，
 确认不是仅停留在 queue 的完成文件。
+
+修复后的并行度复验（2026-09-27 12:26 UTC）：旧三并发失败现已由 EGL
+设备误选解释，并非已证实的并发上限。在双 worker 正常运行时，第三个
+`--once` worker 两次分别完成 Goal-T task3（137.2 秒，valid）和
+Goal-T task7（29.5 秒提前成功，valid）；随后第三 worker 持续运行，
+完成 LIBERO-10-S task0 的长 horizon rollout（230.3 秒，valid）。
+同期其他两个 worker 的任务也正常完成，queue failed 数维持原有 8 条，
+runtime 健康接口 `heartbeat_failed=0`；GPU3 显存约 14.2/24.6 GB。
+截至该时已完成的 110 条 v6 episode 全部 `status=valid`，三路视频、
+延迟摘要及纯 VLA 无工具事件审计缺口为 0。因此暂时保留三个独立
+`--concurrency 1` worker，以后续更长窗口监控失败率和实际吞吐；
+这仍只调整执行并行度，不修改冻结的 2,000 logical ID 或任何门禁。
