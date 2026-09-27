@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from zetta.evolution.models import (
 from zetta.evolution.protocol import EvolutionProtocol
 from zetta.evolution.schedule import preregister_seed_schedule
 from zetta.evolution.store import CampaignStore
+from zetta.evolution.supervisor import promote_and_spawn_generation
 
 
 def _manifest(*, heldout_mode: str, runtime_extra: dict | None = None) -> CampaignManifest:
@@ -146,7 +148,9 @@ def test_protocol_parses_tunable_gate_thresholds() -> None:
     assert protocol.heldout_require_significance is False
 
 
-def test_report_only_heldout_failure_still_allows_promotion(tmp_path: Path) -> None:
+def test_report_only_heldout_failure_still_allows_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     store = CampaignStore(tmp_path / "test-mode")
     store.initialize(_manifest(heldout_mode="test"))
     candidate = _candidate(store)
@@ -165,6 +169,36 @@ def test_report_only_heldout_failure_still_allows_promotion(tmp_path: Path) -> N
     )
     assert store.state()["phase"] == CampaignPhase.PROMOTE.value
     assert store.promote(candidate.sha256)["candidate_sha256"] == candidate.sha256
+    child_manifest = replace(
+        store.manifest(),
+        generation=1,
+        baseline_mode="active_bundle",
+        parent_bundle_sha256=candidate.sha256,
+        active_bundle_sha256=candidate.sha256,
+    )
+    monkeypatch.setattr(
+        "zetta.evolution.supervisor.enqueue_missing_rollouts",
+        lambda **kwargs: {"enqueued": 0, "blocked": []},
+    )
+    child_root = tmp_path / "child"
+    first = promote_and_spawn_generation(
+        campaign_root=store.root,
+        next_campaign_root=child_root,
+        next_queue_root=tmp_path / "queue",
+        worker_hosts=("gpu3",),
+        next_manifest=child_manifest,
+    )
+    assert first["continuation"]["promoted_bundle_sha256"] == candidate.sha256
+    assert store.state()["phase"] == CampaignPhase.COMPLETE.value
+    assert CampaignStore(child_root).manifest().active_bundle_sha256 == candidate.sha256
+    replay = promote_and_spawn_generation(
+        campaign_root=store.root,
+        next_campaign_root=child_root,
+        next_queue_root=tmp_path / "queue",
+        worker_hosts=("gpu3",),
+        next_manifest=child_manifest,
+    )
+    assert replay["continuation"] == first["continuation"]
 
 
 def test_validation_heldout_failure_obeys_round_limit(tmp_path: Path) -> None:

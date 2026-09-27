@@ -401,9 +401,19 @@ def _recover_or_promote(store: CampaignStore) -> dict[str, Any]:
         policy.get("skip_regression_gate", False)
     )
     required = {"same_seed"} if skip_regression else {"same_seed", "regression"}
-    if not required.issubset(passed_kinds) or not (
-        {"heldout_10", "heldout_20", "heldout_50"} & passed_kinds
-    ):
+    heldout_kinds = {"heldout_10", "heldout_20", "heldout_50"}
+    heldout_mode = str(
+        policy.get("heldout_mode", "validation")
+        if isinstance(policy, dict)
+        else "validation"
+    )
+    recorded_kinds = {row["kind"] for row in candidate_gates}
+    heldout_evidence = (
+        heldout_kinds & recorded_kinds
+        if heldout_mode == "test"
+        else heldout_kinds & passed_kinds
+    )
+    if not required.issubset(passed_kinds) or not heldout_evidence:
         raise ValueError("promotion ledger is not supported by all formal gates")
     expected_gate_ids = sorted(row["decision_id"] for row in candidate_gates)
     if promotion.get("gate_decision_ids") != expected_gate_ids:
