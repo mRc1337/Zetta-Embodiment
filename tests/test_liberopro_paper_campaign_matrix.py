@@ -61,6 +61,7 @@ def test_paper_matrix_has_all_cases_and_strict_seed_partition() -> None:
     assert plan["development"]["target_cluster_count"] == 1
     assert plan["development"]["representative"] == "deterministic_medoid"
     assert plan["development"]["historical_cluster_regression_rate"] == 1.0
+    assert plan["development"]["candidate_round_budget"] == 15
     assert len({row["campaign_id"] for row in plan["campaigns"]}) == 40
     for row in plan["campaigns"]:
         assert len(row["development_seeds"]) == 50
@@ -109,6 +110,9 @@ def test_materialized_matrix_freezes_paper_protocol_and_resumes(tmp_path: Path) 
     assert policy["skip_regression_gate"] is False
     assert policy["same_seed_pass_rate"] == 0.5
     assert policy["maximum_target_clusters"] == 1
+    assert policy["same_seed_max_rounds"] == 15
+    assert policy["max_candidate_rounds_per_cluster"] == 15
+    assert policy["maximum_total_candidate_rounds"] == 15
     assert sample["runtime"]["latency"]["enabled"] is True
     assert "--record-latency" in sample["runtime"]["rollout_command"]
     assert sample["expected_rollouts"] == 50
@@ -143,3 +147,15 @@ def test_materialized_matrix_can_freeze_codex_role1_transport(tmp_path: Path) ->
     command = sample["runtime"]["rollout_command"]
     assert plan["runtime"]["role1_planner"] == "codex"
     assert command[command.index("--role1-planner") + 1] == "codex"
+
+
+def test_paper_matrix_requires_room_for_refinement() -> None:
+    with pytest.raises(ValueError, match="at least three"):
+        build_matrix_plan(
+            catalog=_catalog(),
+            code_commit="d" * 40,
+            master_seed=7,
+            runtime_url="http://127.0.0.1:18730",
+            runtime_policy_id="pi05",
+            candidate_round_budget=2,
+        )

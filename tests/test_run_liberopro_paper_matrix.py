@@ -56,6 +56,52 @@ def test_sweep_skips_only_explicitly_paused_task(
     assert report["phases"] == {"rollout": 2}
 
 
+def test_sweep_keeps_spawned_generation_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    matrix = tmp_path / "matrix"
+    parent = matrix / "campaigns/goal-t/task-00"
+    child = parent / "state/children/generation-0001"
+    (parent / "state/analysis").mkdir(parents=True)
+    child.mkdir(parents=True)
+    (parent / "state/state.json").write_text(
+        json.dumps({"phase": "complete"}), encoding="utf-8"
+    )
+    (child / "state.json").write_text(
+        json.dumps({"phase": "rollout"}), encoding="utf-8"
+    )
+    (parent / "state/analysis/generation-continuation.json").write_text(
+        json.dumps({"child_campaign_root": str(child)}), encoding="utf-8"
+    )
+    (parent / "tool-catalog.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        runner, "_campaigns", lambda _root: [({"task": "libero_goal_task/task0"}, parent)]
+    )
+
+    class FakeStore:
+        def __init__(self, root: Path) -> None:
+            self.root = root
+
+        def state(self) -> dict[str, str]:
+            return json.loads((self.root / "state.json").read_text(encoding="utf-8"))
+
+    calls: list[Path] = []
+
+    class FakeSupervisor:
+        def __init__(self, *, campaign_root: Path, **_kwargs: object) -> None:
+            calls.append(campaign_root)
+
+        def step(self) -> dict[str, str]:
+            return {"action": "continued_child_generation"}
+
+    monkeypatch.setattr(runner, "CampaignStore", FakeStore)
+    monkeypatch.setattr(runner, "EvolutionSupervisor", FakeSupervisor)
+    report = runner.sweep(matrix, matrix / "queue", worker_host="gpu3")
+    assert calls == [parent / "state"]
+    assert report["actions"] == {"continued_child_generation": 1}
+    assert report["phases"] == {"rollout": 1}
+
+
 def test_resume_paused_task2_only_after_replay_complete(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

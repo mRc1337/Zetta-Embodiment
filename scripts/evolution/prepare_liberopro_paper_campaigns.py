@@ -155,10 +155,13 @@ def build_matrix_plan(
     runtime_policy_id: str,
     role1_planner: str = "api",
     latency_components: str | None = None,
+    candidate_round_budget: int = 15,
 ) -> dict[str, Any]:
     """Build the deterministic, secret-free matrix contract."""
 
     _validate_catalog(catalog)
+    if candidate_round_budget < 3:
+        raise ValueError("candidate_round_budget must allow at least three refinements")
     if re.fullmatch(r"[0-9a-f]{40}", code_commit) is None:
         raise ValueError("code_commit must be a full lowercase Git SHA")
     components = sorted(parse_latency_components(latency_components))
@@ -224,6 +227,7 @@ def build_matrix_plan(
             "representative": "deterministic_medoid",
             "minimum_success_rate": 0.5,
             "historical_cluster_regression_rate": 1.0,
+            "candidate_round_budget": candidate_round_budget,
         },
         "heldout": {
             "seeds": list(HELDOUT_SEEDS),
@@ -289,6 +293,12 @@ def _single_campaign_argv(args: argparse.Namespace, row: dict[str, Any]) -> list
         "test",
         "--same-seed-pass-rate",
         "0.5",
+        "--same-seed-max-rounds",
+        str(args.candidate_round_budget),
+        "--max-candidate-rounds-per-cluster",
+        str(args.candidate_round_budget),
+        "--maximum-total-candidate-rounds",
+        str(args.candidate_round_budget),
         "--maximum-target-clusters",
         "1",
         "--no-skip-regression-gate",
@@ -336,6 +346,14 @@ def _audit_campaign(
         raise ValueError(f"{path}: development success gate differs")
     if int(policy.get("maximum_target_clusters", 0)) != 1:
         raise ValueError(f"{path}: largest-cluster-only diagnosis differs")
+    budget = int(plan["development"]["candidate_round_budget"])
+    for key in (
+        "same_seed_max_rounds",
+        "max_candidate_rounds_per_cluster",
+        "maximum_total_candidate_rounds",
+    ):
+        if int(policy.get(key, 0)) != budget:
+            raise ValueError(f"{path}: {key} differs from frozen matrix budget")
     latency = runtime.get("latency", {})
     if latency.get("enabled") is not True:
         raise ValueError(f"{path}: latency recording is not enabled")
@@ -373,6 +391,7 @@ def materialize_matrix(
         runtime_policy_id=args.runtime_policy_id,
         role1_planner=args.role1_planner,
         latency_components=args.latency_components,
+        candidate_round_budget=args.candidate_round_budget,
     )
     if args.dry_run:
         return {**plan, "status": "dry_run", "materialized": False}
@@ -463,6 +482,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--continuous-logical-slots", type=int, default=4)
     parser.add_argument("--maximum-logical-slots", type=int, default=4)
     parser.add_argument("--maximum-api-concurrency", type=int, default=4)
+    parser.add_argument(
+        "--candidate-round-budget",
+        type=int,
+        default=15,
+        help="local safety cap; exhaustion is incomplete, not a Table 3 result",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--resume", action="store_true")
     return parser

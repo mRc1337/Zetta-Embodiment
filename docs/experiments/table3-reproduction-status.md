@@ -891,3 +891,21 @@ prompt plumbing 缺陷均不能靠重释旧结果修复。
 pure-VLA baseline。旧 v4 矩阵和旧 task2 replay 均停止作为正式结果来源，
 其本地目录仅作审计。新矩阵仍须完成完整 Zetta 演化、同种子与历史回归、
 全部 held-out 测试及报告器核验，当前没有 Table 3 数值可报告。
+
+v5 尚处于 generation-0 baseline 入队/首批执行时，复核发现其单簇
+`same_seed_max_rounds=2` 与论文“在最大失败簇的错误开发种子上迭代至至少
+50% 成功”的规则存在提前终止风险；v5 controller/worker 已停止，已经完成的
+少量 baseline 仍保留为探索性证据，未混入下一轮。矩阵准备器现把同种子、
+单簇和总候选轮数统一冻结为显式的本地 15 轮安全上限；若达到上限却未达到
+论文门槛，必须报告“预算耗尽、复现未完成”，不能报告 Table 3 成绩。
+矩阵 controller 也改为沿已验证的 generation continuation 继续调度
+promoted child campaign，而非把一个完成的父代误算成整项任务终态。
+
+另用 development seed 22035 对 v4 的旧 prompt-only bundle 做了**非计分**
+回放，唯一行为差异是修复后的提示词转发。回放 `status=valid`、官方成功=false：
+介入在第 114 步触发并执行 320 步；与旧轨迹的动作首次分叉在第 115 步，
+恢复区间到 moka pot 的最短 EEF 距离由约 0.244 m 降至约 0.206 m，但仍没有
+gripper contact 或 grasp，BDDL 满足目标仍为 1/2。三路 MP4 已留在
+`.local-repro/non-scored-prompt-fix-smoke-20260927/task2-seed22035/videos/`。
+这证明提示词现在确实改变动作，同时也只说明这个单种子 prompt-only 救援
+仍失败；正式是否采用新的语义抓取恢复须由新 campaign 的完整门禁判定。

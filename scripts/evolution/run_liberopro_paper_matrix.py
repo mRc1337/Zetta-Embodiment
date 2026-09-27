@@ -50,6 +50,25 @@ def _campaigns(matrix_root: Path) -> list[tuple[dict[str, Any], Path]]:
     return result
 
 
+def _effective_phase(state_root: Path, matrix_root: Path) -> CampaignPhase:
+    """Report the deepest spawned generation, not a completed ancestor."""
+
+    current = state_root.resolve()
+    visited: set[Path] = set()
+    while True:
+        if current in visited or not current.is_relative_to(matrix_root):
+            raise ValueError("generation continuation escapes matrix or contains a cycle")
+        visited.add(current)
+        phase = CampaignPhase(CampaignStore(current).state()["phase"])
+        continuation = current / "analysis/generation-continuation.json"
+        if phase != CampaignPhase.COMPLETE or not continuation.is_file():
+            return phase
+        child = read_json(continuation).get("child_campaign_root")
+        if not isinstance(child, str) or not child:
+            raise ValueError("generation continuation has no child campaign root")
+        current = Path(child).resolve()
+
+
 def sweep(
     matrix_root: Path,
     queue_root: Path,
@@ -65,7 +84,7 @@ def sweep(
         store = CampaignStore(state_root)
         if not (state_root / "state.json").is_file():
             raise ValueError(f"campaign not initialized: {row['task']}")
-        phase = CampaignPhase(store.state()["phase"])
+        phase = _effective_phase(state_root, matrix_root)
         if phase == CampaignPhase.COMPLETE:
             counts["complete"] = counts.get("complete", 0) + 1
             continue
@@ -93,7 +112,7 @@ def sweep(
         actions[action] = actions.get(action, 0) + 1
         if action == "rollout_blocked_on_infrastructure":
             errors.append({"task": row["task"], "error": action})
-        next_phase = CampaignPhase(store.state()["phase"])
+        next_phase = _effective_phase(state_root, matrix_root)
         counts[next_phase.value] = counts.get(next_phase.value, 0) + 1
     return {"campaigns": 40, "phases": counts, "actions": actions, "errors": errors}
 
