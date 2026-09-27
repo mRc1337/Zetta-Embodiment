@@ -964,6 +964,20 @@ task7/task8 也有效结束，累计 30 条有效、0 条 queue failure，runtim
 硬上限，也不修改任何 campaign manifest 或测试种子。后续继续监控长时间
 infra-invalid、401、心跳与显存，一旦恶化先撤回新增 worker。
 
+三并发长跑撤回：随后 Goal-S task6–9 的各一条初次 attempt 在 runtime
+reset 阶段遇到 `ENV_FAILURE: [Errno 104] Connection reset by peer`，
+4 条均为 `infra_invalid`，不是环境任务失败或 401，不计入成功率。故撤回
+第三 worker，回到两个持续运行的 worker；同一时段之后的 Goal-T task0–2
+已再次有效完成，表明 runtime 仍可服务。第三 worker 退出时遗留的
+Goal-S task5 子进程随后写出 `status=valid` 的完整 result；核对其父
+worker 已退出、claim 心跳约 97 秒而活 worker 只有 14–23 秒后，使用
+queue 的 `recover_abandoned(stale_after_s=60)` 只回收该 claim，终态记录
+`commit_source=recovery`、`recovery_reason=published_result_file_after_worker_crash`。
+不删除失败 attempt，也不换种子；由 controller 对 4 个原 logical ID
+按冻结的 max=2 基础设施尝试预算重新排队。鉴于本机 `local` runtime
+在三并发下的这次异常，后续固定双 worker，不再以短时吞吐通过作为稳定
+并发的充分证据。
+
 跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
 `heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
 但旧跨代恢复函数错误地再次要求 held-out decision 的 `passed=true`。
