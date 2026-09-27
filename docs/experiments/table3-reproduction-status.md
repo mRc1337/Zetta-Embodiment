@@ -1220,3 +1220,19 @@ official success 为 210 条，仅是未完成的 development baseline 观测，
 watcher 均存活。此时 baseline 仍有大量 logical ID 排队或在运行，
 候选生成、same-seed gate、historical regression、held-out 评估及最终
 Table 3 报告均未完成，故目标继续保持进行中。
+
+### v6 全矩阵 baseline 1500/2000 阶段检查（2026-09-27 20:59 UTC）
+
+冻结的 40-task development 队列达到 `completed=1500`、`running=3`、
+`pending=497`，历史 `failed=11` 未增加。按完成时间排序的第 1401--1500
+条增量审计全部为 `status=valid`；episode record 与冻结 job 的 logical ID、
+seed、policy RNG 一致，三路 MP4 非空且 `latency/summary.json` 存在，
+证据缺口为 0。此前第 1--1400 条已分段审计。控制器当前已将 1481 条有效
+episode 入账，40 个 campaign 各有 35--38 条、均仍为 `rollout`；队列完成
+与 campaign ledger 的差额符合控制器轮询期间尚未摄取的延迟；完整性仍以
+最终 ledger 和冻结 2000 个 logical ID 复核为准。
+
+runtime、三 worker、controller 和最终纯 VLA watcher 均存活，环境服务
+健康。实验目录约 35 GB，所在文件系统剩余约 688 GB；进入候选 gate 后
+仍需持续观察视频证据的磁盘占用。此处只证明 development baseline 的
+推进与证据完整性，不能报告恢复策略、held-out 或 Table 3 成绩。
