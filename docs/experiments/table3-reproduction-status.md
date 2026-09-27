@@ -789,3 +789,17 @@ slot，矩阵 task2 的 attempt-0 因 `QUOTA_EXCEEDED` 成为 infrastructure-inv
 独立 task2 replay campaign 达到终态后，验证暂停目录仅含该 task 的 job，再将
 它们原样放回 GPU3 队列。此时已有 6 个有效矩阵 baseline、1 个基础设施失败
 attempt；独立 task2 replay 为 24 个有效 baseline、0 个基础设施失败。
+
+后续基础设施复核（2026-09-27）：独立 task2 replay 的 generation-0 baseline
+已完成 50/50 valid、official success 0/50，进入最大失败簇的 Stage1 诊断，随后
+转入候选提案；这些 development 结果仍不是 Table 3 held-out 成绩。矩阵的
+`libero_goal_task` task7、8、9 首次 baseline reset 曾连续返回
+`ENV_FAILURE: Connection reset by peer`，runtime 侧记录 MuJoCo EGL
+`Offscreen framebuffer is not complete (0x8cdd)`。这 3 条是
+infrastructure-invalid，不进入成功率分母；其 attempt-1 已由 supervisor 排队，
+但当时没有继续消耗重试预算。矩阵 worker 和 supervisor 曾有序暂停，runtime
+按原配置重启后，非计分的 task7、8、9 create/reset/close 检查均返回 `Ok`。
+随后恢复了矩阵单并发 worker 和 round-robin supervisor；恢复检查时矩阵共有
+39 个已完成、4 个失败 attempt，1 个运行中，`paused_task2/` 仍隔离 50 个
+task2 job。继续观察 EGL 稳定性和正式 attempt-1 结果；在 40-task held-out
+配对完成并通过汇总器前，不报告 Table 3 成绩。
