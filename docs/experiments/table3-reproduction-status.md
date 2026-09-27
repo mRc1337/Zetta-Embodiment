@@ -1099,3 +1099,28 @@ logical ID、重复 job ID 或 seed/RNG 偏差。审计时 115 条 completed
 `.local-repro/liberopro-paper-v6-matrix-20260927/preflight/codex-stage-20260927-1230/report.json`。
 这只验证了当前 Codex 调用链，不保证未来凭据不会过期，也不代替
 正式 Role1/candidate rollout 的有效性审计。
+
+四并发试验及 Goal-S task5 环境池恢复（2026-09-27）：在三并发长期
+未新增失败后，以第四个 `--once` worker 做两条受控试跑，LIBERO-10-T
+task8（95.6 秒成功）和 Goal-S task4（58.4 秒失败）均 `valid`，
+视频/延迟齐全。随后短暂启动常驻第四 worker 时，Goal-S task5 的
+`g0000-rollout-002`、seed63916 在 runtime reset 阶段报
+`Connection reset by peer`，为第 9 条 `infra_invalid`，不能计作
+任务失败。撤回第四 worker，返回三并发；四并发与故障时间相关，
+但尚不足以证明并发本身是唯一根因，因此不继续用第四 worker 消耗预算。
+
+对 task5 的同 seed 做非计分隔离探针：独立 `make_env` 的普通 reset
+与 seed0+显式 init-state reset 均正常；旧 runtime session 在该 seed
+以及此前正式成功过的 seed6961 上都立即 `Broken pipe`，说明旧 task5
+环境池已损坏且不会自动自愈。为避免耗尽冻结的两次基础设施尝试，
+48 条 task5 pending job 被可逆暂存，controller 临时以 `--pause-task`
+运行；其余 1,784 条 pending job 在维护时也暂存。待三条运行中
+rollout 自然收尾，空闲 worker 和旧 runtime 依次停止，按相同配置、
+端口和 GPU3 重启 runtime。新 runtime 的非计分 seed63916 reset
+成功；随后只释放该 logical ID 的正式 `attempt_index=1`，单 worker
+取得 `status=valid`、任务失败、三路视频与延迟齐全，原 seed 和
+policy RNG 不变。旧无效 attempt 保留审计，重试有效 episode 由
+controller 入账。其余 1,784+47 条原 job 已全部原样恢复，三 worker
+和无暂停标志的 controller 重新运行。此维护没有更换 seed、bundle、
+任务目标或门禁；若旧池失效再现，应先隔离受影响 task 而非盲目耗尽
+最后一次 attempt。
