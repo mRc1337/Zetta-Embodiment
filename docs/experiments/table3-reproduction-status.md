@@ -988,6 +988,10 @@ queue 的 `recover_abandoned(stale_after_s=60)` 只回收该 claim，终态记�
 无额外 ID、无缺失、无不连续 attempt 链；当前 2,004 个 attempt job 恰为
 2,000 个初次 attempt 加 4 个同 ID 基础设施重试。该检查只确认调度完整性，
 不代表 2,000 条均已有效完成。
+纯 VLA 对照审计：前 64 条已完成 development episode 的
+`tool_events.jsonl` 均无事件，`safety_events` 也为空；结合前述无
+bundle 的记录，确认这些 baseline episode 没有被 recovery 工具或
+Critic 介入污染。此结论仅覆盖已完成的 64 条，后续仍需持续核验。
 
 跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
 `heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
