@@ -752,3 +752,11 @@ official success=false，视频和轨迹保存在本地新 campaign 的 `state/a
 development 与 held-out 分区互斥、回归范围为 `target_cluster`。该矩阵 task2 的
 development schedule 与上述旧 seed 配对重跑不同，二者不能合并统计；目前矩阵只是
 预注册，还没有 40-task outcome。
+
+40 个 campaign 的 generation-0 state 已初始化，严格按每 task 50 个 development
+seeds 向共享队列写入 2,000 个 baseline jobs；目前该矩阵队列尚未启动 GPU worker，
+因此入队数不能算已运行或已成功的 episode。GPU3 仍由 task2 旧 schedule 的配对重跑
+独占。该 task2 campaign 的 supervisor 和 worker 均保持运行；截至本次检查已有
+5 个有效 baseline、0 个基础设施失败。还使用冻结的 `gpt-5.6-sol` 模型做最小
+Codex 调用，确认当前凭据能返回有效响应；这只验证了认证链路，不能保证后续
+Role1 介入成功。
