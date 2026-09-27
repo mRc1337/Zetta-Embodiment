@@ -258,6 +258,10 @@ class EnvPool:
         # A dead simulator subprocess leaves its pipe in the pool. Returning
         # that warm slot to the next session would make every later reset fail.
         self.unhealthy = False
+        # A binding may be between pool lookup and slot acquisition. Such a
+        # pool is not idle even though active_slots is still empty.
+        self.pending_bindings = 0
+        self.evicting = False
         # **All** core calls on a vector pool must be serialized: a vector env for
         # a GPU-batched family is a state machine, and concurrent partial resets
         # break it outright (ManiSkill's observed error is "Once _gpu_apply_all is
@@ -1191,6 +1195,7 @@ class RuntimeEnvWorker:
         coalesce_slot_groups: bool = True,
         coalesce_window_ms: float = 200.0,
         has_accelerator: bool = False,
+        max_idle_pools: int = 0,
         reap_interval_seconds: float = 1.0,
         time_source: Callable[[], float] = time.time,
     ) -> None:
@@ -1235,6 +1240,8 @@ class RuntimeEnvWorker:
                 ``needs_accelerator`` landing on a rank without a card"
                 (maniskill is the first ``gpu_batched`` family; this field used to
                 be hardcoded to ``False``, so it could never get a rank).
+            max_idle_pools: Bound retained idle simulator pools. Zero keeps
+                the historical unlimited cache.
             reap_interval_seconds: Interval of the lease-recovery loop in
                 ``run()``.
             time_source: Time source; tests can inject one.
@@ -1258,6 +1265,9 @@ class RuntimeEnvWorker:
         self._pool_locks: dict[str, asyncio.Lock] = {}
         self.inference = InferenceClient(worker_rank=worker_rank, group_name=group_name)
         self.has_accelerator = bool(has_accelerator)
+        if max_idle_pools < 0:
+            raise ValueError("max_idle_pools must be nonnegative")
+        self.max_idle_pools = max_idle_pools
         self.coalescer = SlotGroupCoalescer(
             enabled=bool(coalesce_slot_groups),
             window_seconds=max(0.0, float(coalesce_window_ms)) / 1000.0,
@@ -1416,6 +1426,7 @@ class RuntimeEnvWorker:
             self.reaped_session_count += len(reaped)
             try:
                 self.shrunk_slot_count += await self._shrink_idle_pools()
+                await self._evict_idle_pools()
             except (asyncio.CancelledError, GeneratorExit):
                 raise
             except BaseException:  # noqa: BLE001 - the reclaim loop must never die
@@ -1432,6 +1443,34 @@ class RuntimeEnvWorker:
         for pool in list(self.pools.pools.values()):
             total += await pool.shrink_idle()
         return total
+
+    async def _evict_idle_pools(self) -> int:
+        """Bound idle simulator processes without touching active bindings."""
+        if not self.max_idle_pools:
+            return 0
+        idle = [
+            pool for pool in self.pools.pools.values()
+            if not pool.in_use and not pool.pending_bindings and not pool.evicting
+        ]
+        removed = 0
+        for pool in idle[: max(0, len(idle) - self.max_idle_pools)]:
+            lock = self._pool_locks.setdefault(pool.pool_key, asyncio.Lock())
+            async with lock:
+                if (
+                    self.pools.find(pool.pool_key) is not pool
+                    or pool.in_use
+                    or pool.pending_bindings
+                ):
+                    continue
+                pool.evicting = True
+                try:
+                    await asyncio.to_thread(pool.close)
+                finally:
+                    if self.pools.find(pool.pool_key) is pool:
+                        self.pools.pools.pop(pool.pool_key, None)
+                    pool.evicting = False
+                removed += 1
+        return removed
 
     def _spawn(self, coroutine: Any) -> None:
         task = asyncio.get_running_loop().create_task(coroutine)
@@ -1993,7 +2032,10 @@ class RuntimeEnvWorker:
             existing.lease_expiration = lease_expiration or existing.lease_expiration
             return existing.binding_token
         pool = await self._ensure_pool(env_spec)
-        slot_index = await pool.acquire_or_grow()
+        try:
+            slot_index = await pool.acquire_or_grow()
+        finally:
+            pool.pending_bindings -= 1
         slot = SessionSlot(
             session_id=session_id,
             binding_token=new_binding_token(),
@@ -2042,7 +2084,9 @@ class RuntimeEnvWorker:
             existing is not None
             and existing.core is not None
             and not existing.unhealthy
+            and not existing.evicting
         ):
+            existing.pending_bindings += 1
             return existing
         lock = self._pool_locks.get(pool_key)
         if lock is None:
@@ -2053,7 +2097,8 @@ class RuntimeEnvWorker:
             # waited for the lock.
             existing = self.pools.find(pool_key)
             if existing is not None and existing.core is not None:
-                if not existing.unhealthy:
+                if not existing.unhealthy and not existing.evicting:
+                    existing.pending_bindings += 1
                     return existing
                 if existing.in_use:
                     raise RuntimeApiError(
@@ -2071,7 +2116,9 @@ class RuntimeEnvWorker:
                     await asyncio.to_thread(existing.close)
                 if self.pools.find(pool_key) is existing:
                     self.pools.pools.pop(pool_key, None)
-            return await asyncio.to_thread(self.pools.ensure_pool, env_spec)
+            pool = await asyncio.to_thread(self.pools.ensure_pool, env_spec)
+            pool.pending_bindings += 1
+            return pool
 
     async def release_binding(self, session_id: SessionId) -> None:
         """Release the env slot and delete the session state.

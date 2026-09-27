@@ -124,6 +124,62 @@ async def test_non_transport_reset_error_keeps_warm_pool(
     await worker.aclose()
 
 
+async def test_idle_pool_cap_preserves_active_and_rebuilds_evicted_pool(
+    fake_env_spec: Any,
+) -> None:
+    worker = RuntimeEnvWorker(supported_families=("fake",), max_idle_pools=1)
+    active = fake_env_spec(episode_length=11)
+    oldest = fake_env_spec(episode_length=12)
+    newest = fake_env_spec(episode_length=13)
+    for name, spec in (("active", active), ("oldest", oldest), ("newest", newest)):
+        await worker.create_binding(SessionId(name), spec)
+    old_pool = worker.pools.find(oldest.digest())
+    assert old_pool is not None
+    await worker.release_binding(SessionId("oldest"))
+    await worker.release_binding(SessionId("newest"))
+
+    assert await worker._evict_idle_pools() == 1
+    assert worker.pools.find(active.digest()) is not None
+    assert worker.pools.find(newest.digest()) is not None
+    assert worker.pools.find(oldest.digest()) is None
+    assert old_pool.core is None
+
+    await worker.create_binding(SessionId("rebuilt"), oldest)
+    assert worker.pools.find(oldest.digest()) is not old_pool
+    await worker.aclose()
+
+
+async def test_idle_pool_cap_does_not_close_pending_binding(
+    fake_env_spec: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worker = RuntimeEnvWorker(supported_families=("fake",), max_idle_pools=1)
+    first = fake_env_spec(episode_length=14)
+    second = fake_env_spec(episode_length=15)
+    await worker.create_binding(SessionId("first"), first)
+    await worker.release_binding(SessionId("first"))
+    pool = worker.pools.find(first.digest())
+    assert pool is not None
+    entered = asyncio.Event()
+    proceed = asyncio.Event()
+    acquire = pool.acquire_or_grow
+
+    async def delayed_acquire() -> int:
+        entered.set()
+        await proceed.wait()
+        return await acquire()
+
+    monkeypatch.setattr(pool, "acquire_or_grow", delayed_acquire)
+    pending = asyncio.create_task(worker.create_binding(SessionId("pending"), first))
+    await entered.wait()
+    await worker.create_binding(SessionId("second"), second)
+    await worker.release_binding(SessionId("second"))
+    assert await worker._evict_idle_pools() == 0
+    assert worker.pools.find(first.digest()) is pool
+    proceed.set()
+    await pending
+    await worker.aclose()
+
+
 async def test_envpool_creates_cold_slot_when_no_warm_slot_exists(
     fake_env_spec: Any,
 ) -> None:

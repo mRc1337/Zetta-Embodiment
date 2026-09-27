@@ -133,6 +133,8 @@ class EnvWorkerConfig:
         num_ranks: The number of ranks.
         placement_strategy: ``"node"`` (local/CPU) or ``"packed"`` (multi-GPU).
         max_sessions_per_rank: The number of sessions a single rank can host.
+        max_idle_pools: Maximum warm but unbound environment pools to retain;
+            zero disables eviction.
         default_pool_size: The default for ``EnvSpecMsg.pool_size`` (design
             decision D6: v1 defaults to 1).
         seed_offset: The seed offset for this group.
@@ -158,6 +160,7 @@ class EnvWorkerConfig:
     num_ranks: int = 1
     placement_strategy: str = "node"
     max_sessions_per_rank: int = 8
+    max_idle_pools: int = 0
     default_pool_size: int = 1
     seed_offset: int = 0
     coalesce_slot_groups: bool = True
@@ -355,6 +358,8 @@ def _validate(config: RuntimeConfig) -> None:
             third of the timeout, leaving room for three probes).
     """
     gateway = config.gateway
+    if config.env_worker.max_idle_pools < 0:
+        raise ValueError("env_worker.max_idle_pools must be nonnegative")
     interval = gateway.heartbeat_interval_seconds
     timeout = gateway.heartbeat_timeout_seconds
     if interval > 0 and interval * 3 > timeout:

@@ -1146,3 +1146,40 @@ campaign 的 append-only episode ledger。这验证了该任务的新环境池
 在正常队列调度中可用，不是非计分探针或 recovery 成功。截至此轮审计，
 225 条 completed 均 `valid`，证据缺口为 0，历史 failed 仍为 9 条；
 自动重建分支仍等待真实断管后的现场验证。
+
+### v6 鉴权复核与 LIBERO-10-S task7/8 环境断连（2026-09-27）
+
+旧 v3 task2 的 4 条 Codex Role1 `401 Unauthorized` attempt 已在当时用原
+seed、bundle 和门限补发 attempt-1，4 条均为 `valid`、official success=true；
+但 v3 后来确认逐次 policy RNG 未生效，因此不能把这些重试当作 Table 3 的
+可信 paired evidence。v6 使用修正后的 policy RNG 重新生成 baseline。
+对当前 `gpt-5.6-sol` / `high` 配置重新执行无工具 nonce 鉴权探针，
+`passed=true`，5 项检查全部通过，未出现 401；报告仅保存在本地
+`preflight/codex-stage-401-retry-20260927-2139/report.json`，不计入任何
+success rate。
+
+v6 的 LIBERO-10-S task7 `g0000-rollout-006` / seed9372 与 task8 同 logical ID /
+seed74291 在 reset 阶段先后出现 `Connection reset by peer`，均标为
+`infra_invalid` 而非任务失败；故障发生于同一 queue worker，但涉及不同
+task 环境池。事发时 runtime 留存 38 个模拟器子进程，空闲池未设上限。
+这说明资源累积值得控制，尚不能证明其为断连的唯一原因。为保留原定
+attempt 预算，曾将两任务 86 条待领取 job 可逆暂存，并让其他任务继续。
+
+基础设施修复为 EnvWorker 新增可配置的 `max_idle_pools`（默认 0 保持旧
+行为；本次 runtime 设为 4）：维护循环只关闭无活跃 session 且无待绑定
+操作的旧空闲池，重新创建仍使用同一 env spec 和正式 reset seed。
+并发绑定不会被误回收；22 项相关动态池测试通过。切换运行时前，
+一条 Goal-T task1 rollout 在 worker 停止时变为孤儿进程；等待它自然完成
+并发布 `status=valid` 结果后，通过 queue 的 abandoned-claim 恢复机制
+将同一次 attempt 提交，未重复执行。新 runtime health epoch
+`1790515957`，三 worker 运转时观测到 7 个模拟器子进程（3 活跃、4 空闲）。
+task7 seed9372 和 task8 seed74291 均在同一服务上通过非计分 reset 探针。
+原 86 条 job 已全部恢复，controller 已为两条失败 logical ID 补发冻结
+`attempt_index=1`。两条正式重试均已完成，`status=valid`、official
+success=false，seed 与 policy RNG 分别保持为 task7 `(9372, 188696758)`
+和 task8 `(74291, 56782123)`；各有三路非空 MP4 和延迟目录。原始
+attempt-0 `infra_invalid` 保留审计但不计入任务成功率。优先验证窗口
+临时暂存的 1,734 条其他 pending job 已全部原样恢复；三 worker、
+无暂停标志的 controller 已将两条有效 episode 写入各自的 append-only
+ledger 并继续运行。有效重试说明这两个 seed 已能通过
+正式 rollout，但不能单独证明空闲池上限就是原断连的根因。

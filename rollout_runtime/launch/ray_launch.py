@@ -198,6 +198,7 @@ def _build_env_worker_shell() -> type:
                     coalesce_slot_groups=env_conf.coalesce_slot_groups,
                     coalesce_window_ms=env_conf.coalesce_window_ms,
                     has_accelerator=env_conf.accelerator_present(),
+                    max_idle_pools=env_conf.max_idle_pools,
                     reap_interval_seconds=(
                         self._config.gateway.maintenance_interval_seconds
                     ),

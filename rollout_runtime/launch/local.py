@@ -333,6 +333,7 @@ def build_local_components(
             coalesce_window_ms=env_conf.coalesce_window_ms,
             has_accelerator=env_conf.accelerator_present(),
             reap_interval_seconds=runtime_config.gateway.maintenance_interval_seconds,
+            max_idle_pools=env_conf.max_idle_pools,
         )
         for rank in range(env_conf.num_ranks)
     ]

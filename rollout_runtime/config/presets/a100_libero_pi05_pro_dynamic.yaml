@@ -98,6 +98,8 @@ env_worker:
   placement_strategy: packed
   # 动态扩容上限（served 模式下 ServeLimits.max_pool_size 的缺省来源，见文件头注释）。
   max_sessions_per_rank: 4
+  # 跨 40 个 task 轮转时，只缓存最近 4 个空闲模拟器池，避免几十个 EGL 子进程常驻。
+  max_idle_pools: 4
   # 启动时只冷启 1 个 slot；1->4 的其余 3 个由 add_slot 按需逐个追加。
   default_pool_size: 1
   seed_offset: 0
