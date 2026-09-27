@@ -100,6 +100,7 @@ def _decision(
 
 def test_protocol_isolates_fixed_seed_1_to_20() -> None:
     protocol = EvolutionProtocol()
+    assert protocol.runtime_policy()["regression_scope"] == "target_cluster"
     rollout, heldout, _ = preregister_seed_schedule(
         master_seed=7,
         task="libero_goal_swap/task3",
@@ -110,6 +111,11 @@ def test_protocol_isolates_fixed_seed_1_to_20() -> None:
     protocol.validate_partition(rollout, heldout)
     assert heldout == tuple(range(1, 21))
     assert not set(rollout) & set(heldout)
+
+
+def test_protocol_rejects_unknown_regression_scope() -> None:
+    with pytest.raises(ValueError, match="regression_scope"):
+        EvolutionProtocol(regression_scope="unknown")
 
 
 def test_protocol_rejects_rollout_heldout_overlap() -> None:

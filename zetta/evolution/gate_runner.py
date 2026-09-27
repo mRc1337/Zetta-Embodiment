@@ -168,7 +168,31 @@ class PairedGateRunner:
     def _preregistered_seeds(self) -> tuple[int, ...]:
         manifest = self.store.manifest()
         if self.gate_kind == "regression":
-            return manifest.rollout_seeds
+            policy = manifest.runtime.get("evolution_policy", {})
+            if not isinstance(policy, dict):
+                raise ValueError("runtime.evolution_policy must be an object")
+            scope = policy.get("regression_scope", "all_development")
+            if scope == "all_development":
+                return manifest.rollout_seeds
+            if scope != "target_cluster":
+                raise ValueError("unsupported regression_scope")
+            # Historical regression in the paper is over the originating
+            # failure cluster K_i, not every development rollout. Reuse the
+            # already frozen same-seed plan to preserve its exact membership
+            # and preregistered order across retries and process restarts.
+            same_seed = PairedGateRunner(
+                campaign_root=self.store.root,
+                queue_root=self.queue.root,
+                worker_hosts=self.worker_hosts,
+                gate_kind="same_seed",
+                candidate_sha256=self.candidate_sha256,
+            ).prepare()
+            seeds = tuple(int(pair["seed"]) for pair in same_seed["pairs"])
+            if not seeds or len(seeds) != len(set(seeds)):
+                raise ValueError("target-cluster regression requires unique seeds")
+            if not set(seeds).issubset(manifest.rollout_seeds):
+                raise ValueError("target-cluster regression escaped development seeds")
+            return seeds
         if self.gate_kind in {"heldout", "heldout_20"}:
             expected = 50 if self.gate_kind == "heldout" else 20
             if len(manifest.heldout_seeds) != expected:

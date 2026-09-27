@@ -699,3 +699,12 @@ regression job 已原样归档到本地 queue 的 `cancelled/local/`，避免污
 `d10b51cf69c8587c75dd9c7ee9e4d84be7714557a072b9293e3c54e65bcb0480` 已生成，
 49 个同种子 candidate jobs 已入队，49 个 parent arms 复用冻结 baseline 证据。当前实际
 phase 已转为 `same_seed_gate`。
+
+协议复核（2026-09-27）：论文 2.6.2 节的 Historical Regression 是对**来源失败簇
+`K_i`** 的每个 seed 要求 100% 成功，不是无条件对全部开发 seed 要求 100%。现有 v3
+campaign 的冻结 manifest 没有 `regression_scope` 字段，继续保留原先 `all_development`
+行为，故 task-02 仍按 50 个开发 seed 判定，不能事后改写门限或重释其 decision。
+代码新增可显式预注册的 `target_cluster` 模式，从已冻结 same-seed plan 取得簇内 seed；
+新 `EvolutionProtocol` 默认使用此论文一致模式。本任务主簇包含 49/50 个开发失败，
+另 1 个失败在次簇。此前两轮候选的拒绝结果不因本次代码修改而改变；后续新 campaign
+若采用按簇回归，必须重新预注册并独立报告，不能与 v3 的 50-seed regression 混算。

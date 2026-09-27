@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 HeldoutMode = Literal["test", "validation"]
+RegressionScope = Literal["target_cluster", "all_development"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class EvolutionProtocol:
     maximum_target_clusters: int = 2
     maximum_total_candidate_rounds: int = 25
     regression_required: bool = True
+    regression_scope: RegressionScope = "target_cluster"
 
     def __post_init__(self) -> None:
         if self.rollout_count < 1:
@@ -50,6 +52,8 @@ class EvolutionProtocol:
             raise ValueError("heldout_seeds must be unique")
         if self.heldout_mode not in {"test", "validation"}:
             raise ValueError("heldout_mode must be 'test' or 'validation'")
+        if self.regression_scope not in {"target_cluster", "all_development"}:
+            raise ValueError("unsupported regression_scope")
         if not 0 < self.same_seed_pass_rate <= 1:
             raise ValueError("same_seed_pass_rate must be in (0, 1]")
         if not 0 < self.heldout_alpha < 1:
@@ -117,6 +121,7 @@ class EvolutionProtocol:
             "maximum_target_clusters": self.maximum_target_clusters,
             "maximum_total_candidate_rounds": self.maximum_total_candidate_rounds,
             "regression_required": self.regression_required,
+            "regression_scope": self.regression_scope,
         }
 
     def runtime_policy(self) -> dict[str, Any]:
@@ -135,6 +140,7 @@ class EvolutionProtocol:
             "maximum_target_clusters": self.maximum_target_clusters,
             "maximum_total_candidate_rounds": self.maximum_total_candidate_rounds,
             "skip_regression_gate": not self.regression_required,
+            "regression_scope": self.regression_scope,
         }
 
     def validate_partition(

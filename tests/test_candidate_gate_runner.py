@@ -42,6 +42,7 @@ def _manifest(
     *,
     reuse_parent_evidence: bool = False,
     max_infrastructure_attempts: int = 3,
+    regression_scope: str | None = None,
 ) -> CampaignManifest:
     heldout = 99
     policy_rng = {str(seed): seed * 101 for seed in (*seeds, heldout)}
@@ -62,6 +63,11 @@ def _manifest(
         max_infrastructure_attempts=max_infrastructure_attempts,
         runtime={
             "reuse_rollout_parent_evidence": reuse_parent_evidence,
+            **(
+                {"evolution_policy": {"regression_scope": regression_scope}}
+                if regression_scope is not None
+                else {}
+            ),
             "subsequent_rollout_count": 10,
             "rollout_command": [
                 "python",
@@ -289,6 +295,8 @@ def _setup(
     seeds: tuple[int, ...] = (11, 12),
     reuse_parent_evidence: bool = False,
     max_infrastructure_attempts: int = 3,
+    regression_scope: str | None = None,
+    successful_seeds: tuple[int, ...] = (),
 ) -> tuple[Path, Path, CampaignStore, CandidateBundle]:
     root = tmp_path / "campaign"
     queue_root = tmp_path / "queue"
@@ -296,13 +304,15 @@ def _setup(
         seeds,
         reuse_parent_evidence=reuse_parent_evidence,
         max_infrastructure_attempts=max_infrastructure_attempts,
+        regression_scope=regression_scope,
     )
     store = CampaignStore(root)
     store.initialize(manifest)
     for index, seed in enumerate(seeds):
-        store.record_episode(
-            _source_episode(seed, manifest.policy_rng_by_seed[str(seed)], index)
-        )
+        record = _source_episode(seed, manifest.policy_rng_by_seed[str(seed)], index)
+        if seed in successful_seeds:
+            record = replace(record, success=True, failure_segment=None)
+        store.record_episode(record)
     report = analyze_failures(root)
     cluster_id = str(report["dominant_cluster_id"])
     store.transition(CampaignPhase.DIAGNOSE)
@@ -1046,6 +1056,37 @@ def _enter_regression_gate(store: CampaignStore, candidate: CandidateBundle) -> 
     )
     store.record_gate(decision)
     store.transition(CampaignPhase.REGRESSION_GATE)
+
+
+def test_paper_regression_uses_only_frozen_target_cluster_seeds(
+    tmp_path: Path,
+) -> None:
+    root, queue_root, store, candidate = _setup(
+        tmp_path,
+        seeds=(11, 12, 13),
+        successful_seeds=(13,),
+        regression_scope="target_cluster",
+    )
+    same_seed = CandidateGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=("host-a",),
+        candidate_sha256=candidate.sha256,
+    ).prepare()
+    assert {pair["seed"] for pair in same_seed["pairs"]} == {11, 12}
+    _enter_regression_gate(store, candidate)
+    runner = PairedGateRunner(
+        campaign_root=root,
+        queue_root=queue_root,
+        worker_hosts=("host-a",),
+        gate_kind="regression",
+    )
+    plan = runner.prepare()
+    assert tuple(pair["seed"] for pair in plan["pairs"]) == tuple(
+        pair["seed"] for pair in same_seed["pairs"]
+    )
+    assert len(plan["pairs"]) == 2
+    assert runner.prepare() == plan
 
 
 def test_regression_gate_adopts_all_frozen_rollout_parent_arms(
