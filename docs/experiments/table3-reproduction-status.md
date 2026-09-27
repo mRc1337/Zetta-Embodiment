@@ -992,6 +992,10 @@ queue 的 `recover_abandoned(stale_after_s=60)` 只回收该 claim，终态记�
 `tool_events.jsonl` 均无事件，`safety_events` 也为空；结合前述无
 bundle 的记录，确认这些 baseline episode 没有被 recovery 工具或
 Critic 介入污染。此结论仅覆盖已完成的 64 条，后续仍需持续核验。
+运行量级估算：截至 2026-09-27 11:29 UTC，已完成 67 条有效 rollout；
+从首条完成至该时约 90 分钟，观察吞吐约 44 条/小时。若此速率保持，
+剩余 development 的约 1,933 条需约 44 小时；这不包括后续诊断、
+候选验证、跨代 rollout 和正式 1–20 留出测试，也不是停止预算或成绩预测。
 
 跨代晋升框架修复（`17b1944e1b724f18f722b771f7809ce1d8014d6b`）：
 `heldout_mode=test` 的判定层已把 1–20 留出集限定为只报告、不参与候选选择，
