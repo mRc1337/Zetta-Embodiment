@@ -674,7 +674,8 @@ privileged evidence 与 provider/worker 日志均不提交 Git；文档只记录
 | candidate SHA-256 前缀 | 机制 | same-seed candidate / parent | 严格因果救援 | regression candidate / parent | 判定 |
 |---|---|---:|---:|---:|---|
 | `934f0a3b9a55` | 原始语义 pick-place | 37/49 / 0/49 | 37/37 | 41/50 / 0/50 | regression reject |
-| `76f6e9c026f8` | 仅设 `vertical_first_carry=true` | 41/49 / 0/49 | 41/41 | 进行中 | same-seed pass |
+| `76f6e9c026f8` | 仅设 `vertical_first_carry=true` | 41/49 / 0/49 | 41/41 | 3/4 observed / 0/50 parent；46 未执行 | regression early reject |
+| `d10b51cf69c8` | 保留 vertical-first，仅将 `grasp_confirm_steps` 从 4 增至 8 | 进行中 | 进行中 | 未运行 | same-seed 进行中 |
 
 第一候选的 same-seed decision 为 `gate-c7443f46a27e9d5b1bb3`；其 regression decision
 为 `gate-3788dcdb7ee6f3e7610e`。虽然第一候选在 50 个开发种子中救援 41 次、无安全事件，
@@ -686,6 +687,15 @@ decision 为 `gate-46dcc4abb1ee17233390`：41/49 成功，高于冻结门槛 25/
 部分结果对应 Codex Role1 请求返回 401 Unauthorized。这些尝试没有进入策略分母；凭据恢复
 经同模型最小调用验证后，supervisor 回收 lease、接纳 4 条失败审计记录，并在原定两次
 infrastructure attempt 预算内补发 4 个 attempt-1 job。重试后 49/49 candidate arms 均取得
-有效结果，未改动 seed、bundle 或门限。当前 phase 为 `regression_gate`，50 个开发种子
-candidate jobs 已入队；held-out seeds 1--20 尚未使用。本地 trajectory、视频和 Role1 日志仍
+有效结果，未改动 seed、bundle 或门限。随后进入 `regression_gate`，50 个开发种子
+candidate jobs 曾入队；held-out seeds 1--20 尚未使用。本地 trajectory、视频和 Role1 日志仍
 保留在忽略的 campaign 目录中，不提交 Git。
+
+第二候选 regression 在前 4 个有效 candidate arms 中取得 3 成功、1 失败；失败一旦出现，
+冻结的 `all_historical_rollouts_must_succeed` 规则已不可能通过。supervisor 写入正式提前
+拒绝 decision `gate-9af229d2e64d79ef195e`，并回到 `propose`。剩余 46 个未执行的旧
+regression job 已原样归档到本地 queue 的 `cancelled/local/`，避免污染后续候选；因此上表的
+3/4 observed 不是完整 50-seed 成功率，也不作为 Table 3 结果。第三候选 SHA
+`d10b51cf69c8587c75dd9c7ee9e4d84be7714557a072b9293e3c54e65bcb0480` 已生成，
+49 个同种子 candidate jobs 已入队，49 个 parent arms 复用冻结 baseline 证据。当前实际
+phase 已转为 `same_seed_gate`。
