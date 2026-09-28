@@ -1431,3 +1431,15 @@ soup-in-basket、4 条两个目标均未完成。在 14 条仅完成 soup 的 ep
 只是其中一个子集）。相关 trajectory、Stage 和 campaign/runtime 测试
 合计 145 项通过。这是下一版本的聚类能力修复，不追写 v6 记录，也尚未
 证明任一恢复候选有效；正式重跑须使用新的代码/catalog/manifest lineage。
+
+另一例是 LIBERO-10 (T) task4：50 条 development baseline 官方成功
+`0/50`，最大视觉失败簇含 50 条，Stage-1 在“VLA 放置后不核查谓词”
+和“最后居中动作实现误差”之间保持不确定，v6 因而同样进入
+`complete/no_actionable_cluster_diagnosis`，没有试验任何候选。
+这不是论文意义的演化完成。独立 v7 分支提交 `b8e19d2` 增加明示的
+`strict_inconclusive_hypothesis_trials`：当诊断有至少两个竞争假说且
+有可证伪条件时，选择一个领先假说进入 Stage-2，但**不**使用放宽
+门槛的 provisional 授权；同种子 ≥50%、历史回归及 held-out 隔离
+仍按冻结协议执行，诊断的不确定性仍须在候选和报告中保留。211 项
+evolution 测试通过。此修复只存在于 v7 分支，尚未生成新的正式矩阵，
+不能回填 v6 task4 的完成状态或报告成功率。
