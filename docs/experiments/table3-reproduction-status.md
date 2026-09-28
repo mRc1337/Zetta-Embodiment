@@ -1680,3 +1680,27 @@ gate decision、regression、promotion 或 held-out 结果。
 
 同期正式 v7 只读审计为 303/2000 条开发基线有效、问题 0、failed 队列 0，
 3 条 worker 在运行；v6 的探索性候选不得并入 v7 Table 3 成绩。
+
+### 配对介入时序的只读审计（2026-09-28）
+
+新增 `scripts/experiments/audit_paired_causal_prefix.py`，针对已完成的
+same-seed gate 逐 pair 比较物理 reset、动作哈希序列及 recovery 激活步。
+它只把“动作首次分叉不早于激活步”的 candidate win 标为
+`prefix_consistent_win`；这个条件只是因果归因的必要条件，**并非**
+介入导致成功的充分证明，也不改动冻结 gate 决策或 Table 3 分母。
+用两条合成配对验证，能区分激活时分叉与激活前先漂移；相关测试及现有
+出表测试合计 11 项通过。
+
+真实旧 v3 LIBERO-10-S task2 候选 `76f6e9c0...` 的 49 对 gate 中，
+41 条 candidate win 均已记录 intervention，但这 41 条的动作首次分叉
+都早于 recovery 激活；时序相容的 candidate win 为 0。此前 gate
+重算出的 41/49 数值本身正确，但不能据此宣称 41 条因介入而获救。
+该结果与旧 v3 已知的 policy RNG 缺陷一致，并不外推为正式 v7 gate
+也有相同问题；v7 产生 gate 后须运行相同的时序审计。
+
+此外，对 v6 与 v7 当前重合的 345 个开发基线 seed 做只读跨版本核对：
+345 个 policy RNG 和官方成功判定均一致，292 条动作轨迹字节完全一致；
+余下 53 条中，21 条初始相机哈希不同且从首个 VLA 动作起分叉，32 条
+相机哈希相同但在后续步骤分叉。物理 reset 状态哈希在 345 条中全部
+一致。这支持基线成功判定未发生明显跨版本漂移，同时表明“同 seed、
+同 RNG”不自动保证逐动作同轨，后续 paired recovery 必须核验介入前缀。
