@@ -1371,3 +1371,16 @@ schema 与执行签名一致、候选校验接受该参数。相关 74 项测试
 该分支未并入正在运行的 v6 主工作树，也未修改 v6 已冻结的 catalog、
 manifest、候选 bundle 或门禁结果；需要新 lineage 的非计分开发集
 smoke 与正式 gate 才能判断闭合夹爪拉抽屉是否真的有效。
+
+### v6 LIBERO-10 (T) task1 的异质失败簇（2026-09-28 01:44 UTC）
+
+该任务 50 条 development baseline 中官方成功 `19/50`。最大视觉失败簇的
+Stage-1 诊断辨认出两种不同残余失败：一类已经抓持第二目标但在篮口附近
+过早释放，另一类在完成第一谓词后未能取得第二目标。诊断因此明确写为
+`Inconclusive at cluster scope`，控制器状态为
+`complete/no_actionable_cluster_diagnosis`，没有 candidate 或同种子 gate。
+这只说明当前冻结的单簇诊断路线停止，**不**说明达到论文要求的开发集
+≥50% 目标失败种子修复，也不能作为 Table 3 最终任务完成。论文的
+LIBERO-Pro 流程要求围绕最大失败簇的错误开发种子继续迭代至该门槛；
+后续须审计是否应将异质簇按可检验表型细分、再取代表失败做候选验证，
+且不能以放宽门禁的 provisional 授权代替论文的成功标准。
