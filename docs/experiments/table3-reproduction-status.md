@@ -1299,3 +1299,22 @@ GPU3 runtime（新 epoch `1790555958`，未触及 GPU3 上其他用户进程）�
 与原 attempt-0 一致。修复发生在冻结代码提交之后，属于显式记录的
 基础设施容量变更；其候选效果仍须由有效的同种子 gate、历史回归和
 held-out 证据决定。
+
+### v6 Goal-T task0 首轮同种子门禁与第二轮候选（2026-09-28 01:10 UTC）
+
+首轮候选的 50 对同种子 development gate 均取得有效结果，补发的
+46 条 attempt-1 保持原 logical ID、seed、policy RNG 与 bundle SHA-256；
+50 条候选 episode 均有实际 Role1 介入、非空视频及延迟摘要。正式 gate
+ledger 记录 parent 成功 `0/50`、candidate 成功 `1/50`、candidate wins `1`、
+安全事件均为 `0`，但 `passed=false`：冻结门槛要求至少 `25/50`，且未确认
+可归因的成功救援。唯一的成功翻转在 p019/seed 24307 上出现；其受审计
+交互实际执行，但该交互的关节目标反馈未报告成功，所以只可说观察到同种子
+结果翻转，不能断言成功由恢复动作造成。50 对的 reset-state binding 一致，
+32 对精确 camera digest 不同，亦记录在 gate rationale 中。
+
+控制器按原失败簇进入 `refine_active_cluster`，第二轮 Stage-2 已生成候选
+`c60cdffb16130317fceb46d246012b0603487d819b790bf286a4a8caddcff4d6`。
+它只将同一底层关节语义交互的介入时机从第 145 步提前到第 78 步，其他
+工具参数未改变；提前介入是待检验假说，不是经验证的提升。第二轮 50 条
+candidate job 已由控制器排入同种子 gate 队列，结果待收齐。旧 v3 的
+`401 Unauthorized` 与这轮 v6 容量故障均未计入策略分母，不能混同。
