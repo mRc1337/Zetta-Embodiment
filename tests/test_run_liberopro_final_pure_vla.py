@@ -1,4 +1,4 @@
-"""The no-promotion final test keeps evaluation separate from evolution."""
+"""The final pure-VLA test keeps evaluation separate from evolution."""
 
 from __future__ import annotations
 
@@ -56,14 +56,20 @@ def test_final_test_manifest_reuses_frozen_seeds_and_rng(tmp_path: Path) -> None
     assert final.active_bundle_sha256 is None
 
 
-def test_final_test_excludes_promoted_or_nonterminal_source(tmp_path: Path) -> None:
+def test_final_test_includes_promoted_source_after_all_evolution(tmp_path: Path) -> None:
     campaign, _ = _source(tmp_path)
     handoff = campaign / "state/analysis/generation-continuation.json"
     handoff.parent.mkdir()
-    handoff.write_text("{}", encoding="utf-8")
-    assert not _needs_final_baseline(campaign)
-    handoff.unlink()
+    handoff.write_text(
+        json.dumps({"promoted_bundle_sha256": "d" * 64}), encoding="utf-8"
+    )
     state = campaign / "state/state.json"
+    state.write_text(
+        json.dumps({"phase": "complete", "current_bundle_sha256": "d" * 64}),
+        encoding="utf-8",
+    )
+    assert _needs_final_baseline(campaign)
+    handoff.unlink()
     state.write_text(json.dumps({"phase": "rollout", "current_bundle_sha256": None}), encoding="utf-8")
     with pytest.raises(ValueError, match="not terminal"):
         _needs_final_baseline(campaign)

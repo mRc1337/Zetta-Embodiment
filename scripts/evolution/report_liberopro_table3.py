@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
+from scripts.evolution.run_liberopro_final_harness import (
+    EVALUATION_SCOPE as FINAL_HARNESS_SCOPE,
+    evaluation_root as final_harness_root,
+)
 from scripts.evolution.run_liberopro_final_pure_vla import EVALUATION_SCOPE, evaluation_root
 from zetta.evolution.gating import evaluate_paired_gate
 from zetta.evolution.jsonio import canonical_sha256, read_json
@@ -200,6 +204,8 @@ def _verify_promotion_gates(
     manifest: dict[str, Any],
     candidate_sha: str,
     parent_sha: str | None,
+    *,
+    require_heldout: bool = True,
 ) -> None:
     """Bind a promotion to passed development gates and the fixed final test."""
 
@@ -219,10 +225,11 @@ def _verify_promotion_gates(
         if row.get("candidate_sha256") == candidate_sha
     ]
     by_kind = {row.get("kind"): row for row in decisions}
-    if len(by_kind) != len(decisions) or set(by_kind) != {
-        "same_seed", "regression", "heldout_20"
-    }:
-        raise ValueError("promotion lacks unique same-seed, regression, or held-out gates")
+    expected_kinds = {"same_seed", "regression"}
+    if require_heldout:
+        expected_kinds.add("heldout_20")
+    if len(by_kind) != len(decisions) or set(by_kind) != expected_kinds:
+        raise ValueError("promotion lacks its unique required development/test gates")
     ids = [row.get("decision_id") for row in decisions]
     if (
         any(not isinstance(value, str) or not value for value in ids)
@@ -330,21 +337,25 @@ def _verify_promotion_gates(
 
 
 def _score_final_pure_vla(
-    campaign_root: Path, row: dict[str, Any], source_manifest: dict[str, Any]
+    campaign_root: Path,
+    row: dict[str, Any],
+    source_manifest: dict[str, Any],
+    *,
+    require_no_promotion: bool = True,
 ) -> int:
     """Score a terminal no-promotion task from its separate final-test lane."""
 
     source_state = read_json(campaign_root / "state/state.json")
     if (
-        source_state.get("current_bundle_sha256") is not None
-        or source_state.get("candidate_sha256") is not None
+        (require_no_promotion and source_state.get("current_bundle_sha256") is not None)
+        or (require_no_promotion and source_state.get("candidate_sha256") is not None)
         or source_manifest.get("generation") != 0
         or source_manifest.get("baseline_mode") != "strict_pure_vla"
         or source_manifest.get("active_bundle_sha256") is not None
     ):
         raise ValueError("no-promotion task is not a pure-VLA harness")
     promotion_path = campaign_root / "state/ledgers/promotions.jsonl"
-    if promotion_path.is_file() and _jsonl(promotion_path):
+    if require_no_promotion and promotion_path.is_file() and _jsonl(promotion_path):
         raise ValueError("no-promotion task has promotion evidence")
     root = evaluation_root(campaign_root.parents[2], row)
     manifest = read_json(root / "manifest.json")
@@ -406,6 +417,83 @@ def _score_final_pure_vla(
             _artifact(path, campaign_root=root)
         _artifact(record.artifact_index.get("latency_summary"), campaign_root=root)
         successes += int(record.success is True)
+    return successes
+
+
+def _score_final_harness(
+    campaign_root: Path,
+    row: dict[str, Any],
+    source_manifest: dict[str, Any],
+) -> int:
+    """Score the terminal promoted bundle only from its final-test lane."""
+
+    bundle_sha = source_manifest.get("active_bundle_sha256")
+    if not isinstance(bundle_sha, str) or len(bundle_sha) != 64:
+        raise ValueError("final harness has no promoted bundle digest")
+    root = final_harness_root(campaign_root.parents[2], row)
+    manifest = read_json(root / "manifest.json")
+    state = read_json(root / "state.json")
+    seeds = list(range(1, 21))
+    controls = list(source_manifest["rollout_seeds"][:20])
+    expected_rng = {
+        str(seed): source_manifest["policy_rng_by_seed"][str(seed)]
+        for seed in (*seeds, *controls)
+    }
+    if (
+        manifest.get("runtime", {}).get("evaluation_scope") != FINAL_HARNESS_SCOPE
+        or manifest["runtime"].get("evaluation_source_manifest_sha256")
+        != canonical_sha256(source_manifest)
+        or manifest["runtime"].get("evaluation_source_bundle_sha256") != bundle_sha
+        or manifest.get("code_commit") != source_manifest.get("code_commit")
+        or manifest.get("task") != row["task"]
+        or manifest.get("generation") != source_manifest["generation"]
+        or manifest.get("baseline_mode") != "active_bundle"
+        or manifest.get("active_bundle_sha256") != bundle_sha
+        or manifest.get("rollout_seeds") != seeds
+        or manifest.get("heldout_seeds") != controls
+        or manifest.get("expected_rollouts") != 20
+        or manifest.get("expected_heldout") != 20
+        or manifest.get("policy_rng_by_seed") != expected_rng
+        or state.get("manifest_sha256") != canonical_sha256(manifest)
+        or state.get("phase") != "rollout"
+        or state.get("current_bundle_sha256") != bundle_sha
+    ):
+        raise ValueError("final harness test manifest or state differs")
+    records = _jsonl(root / "ledgers/episodes.jsonl")
+    if len(records) != 20:
+        raise ValueError(f"final harness test has {len(records)} episodes, expected 20")
+    seen: set[str] = set()
+    successes = 0
+    for payload in records:
+        record = EpisodeRecord.from_dict(payload)
+        if record.logical_id in seen:
+            raise ValueError("final harness test has a duplicate episode")
+        seen.add(record.logical_id)
+        suffix = record.logical_id.removeprefix(
+            f"g{source_manifest['generation']:04d}-rollout-"
+        )
+        index = int(suffix) if suffix.isdigit() else -1
+        if (
+            not 0 <= index < 20
+            or record.logical_id
+            != f"g{source_manifest['generation']:04d}-rollout-{index:03d}"
+            or record.status != "valid"
+            or type(record.success) is not bool
+            or record.generation != source_manifest["generation"]
+            or record.seed != index + 1
+            or record.policy_rng != expected_rng[str(index + 1)]
+            or record.bundle_sha256 != bundle_sha
+        ):
+            raise ValueError("final harness episode violates frozen test schedule")
+        videos = record.artifact_index.get("videos")
+        if not isinstance(videos, dict) or set(videos) != {
+            "agentview", "wrist", "multiview"
+        }:
+            raise ValueError("final harness episode lacks three-camera video evidence")
+        for path in videos.values():
+            _artifact(path, campaign_root=root)
+        _artifact(record.artifact_index.get("latency_summary"), campaign_root=root)
+        successes += int(record.success)
     return successes
 
 

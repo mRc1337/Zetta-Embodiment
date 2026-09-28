@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run final test seeds for tasks whose frozen harness never promoted a skill.
+"""Run the final pure-VLA control on all 40 tasks after evolution ends.
 
 This evaluation-only lane is opened only after all 40 task evolutions are
 terminal. It never invokes clustering, diagnosis, proposal, or promotion.
@@ -34,8 +34,16 @@ def _needs_final_baseline(campaign: Path) -> bool:
     state = read_json(state_root / "state.json")
     if state.get("phase") != CampaignPhase.COMPLETE.value:
         raise ValueError("source task is not terminal")
-    if (state_root / "analysis/generation-continuation.json").is_file():
-        return False
+    continuation = state_root / "analysis/generation-continuation.json"
+    if continuation.is_file():
+        handoff = read_json(continuation)
+        if (
+            state.get("current_bundle_sha256")
+            != handoff.get("promoted_bundle_sha256")
+            or state.get("candidate_sha256") is not None
+        ):
+            raise ValueError("promoted source task has an inconsistent handoff")
+        return True
     if state.get("current_bundle_sha256") is not None:
         raise ValueError("uncontinued source task has an active bundle")
     if state.get("candidate_sha256") is not None:
