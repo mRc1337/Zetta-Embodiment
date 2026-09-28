@@ -1492,3 +1492,10 @@ v7 manifest 的 rollout 脚本路径指向持久工作树，严格不确定假�
 episode** 时将那份清单完整移至本地
 `.local-repro/liberopro-paper-v7-invalid-code-commit-20260928/` 保存审计，
 然后省略手写哈希、由准备器读取真实 HEAD 重新生成上述正式清单。
+
+随后按这 40 份冻结 manifest 初始化独立 campaign state，并执行一次 v7
+matrix sweep：`40/40` campaign 均在 `rollout` 阶段，无调度错误；v7 独立队列
+已有 `pending=2000`、`running=completed=failed=0`，逐任务恰好 50 条，
+且没有任何 seed 1--20。此时**尚未启动 v7 worker**，故这些只是待运行的
+开发基线 job，不是 2000 条有效 episode。v6 控制器当时仍有活跃诊断代理；
+为避免与已回退到三 worker 的 GPU3 配置叠加并发，v7 rollout 暂未执行。
