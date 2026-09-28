@@ -15,6 +15,7 @@ from typing import Any
 
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
 from scripts.evolution.run_liberopro_final_pure_vla import EVALUATION_SCOPE, evaluation_root
+from zetta.evolution.gating import evaluate_paired_gate
 from zetta.evolution.jsonio import canonical_sha256, read_json
 from zetta.evolution.models import EpisodeRecord
 
@@ -285,6 +286,7 @@ def _verify_promotion_gates(
             raise ValueError(f"promotion {kind} gate lacks complete valid episode evidence")
         observed: set[str] = set()
         measured = {"parent": 0, "candidate": 0}
+        arms: dict[str, list[EpisodeRecord]] = {"parent": [], "candidate": []}
         for payload in records:
             record = EpisodeRecord.from_dict(payload)
             if record.logical_id in observed or record.logical_id not in expected:
@@ -308,11 +310,23 @@ def _verify_promotion_gates(
                 _artifact(path, campaign_root=state_root)
             _artifact(record.artifact_index.get("latency_summary"), campaign_root=state_root)
             measured[arm] += int(record.success)
+            arms[arm].append(record)
         if (
             decision.get("parent_successes") != measured["parent"]
             or decision.get("candidate_successes") != measured["candidate"]
         ):
             raise ValueError(f"promotion {kind} decision contradicts valid episodes")
+        recomputed = evaluate_paired_gate(
+            kind=kind,
+            candidate_sha256=candidate_sha,
+            parent_sha256=parent_sha,
+            candidate_records=arms["candidate"],
+            parent_records=arms["parent"],
+            expected_seeds=tuple(ordered_seeds),
+            same_seed_pass_rate=(0.5 if kind == "same_seed" else 1.0),
+        )
+        if not recomputed.passed or decision != recomputed.as_dict():
+            raise ValueError(f"promotion {kind} decision fails causal recomputation")
 
 
 def _score_final_pure_vla(

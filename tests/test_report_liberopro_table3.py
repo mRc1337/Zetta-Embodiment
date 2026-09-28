@@ -10,7 +10,9 @@ import pytest
 from scripts.evolution.prepare_liberopro_paper_campaigns import PAPER_SETTINGS
 from scripts.evolution.report_liberopro_table3 import _score_task, summarize
 from scripts.evolution.run_liberopro_final_pure_vla import evaluation_root
+from zetta.evolution.gating import evaluate_paired_gate
 from zetta.evolution.jsonio import canonical_sha256
+from zetta.evolution.models import EpisodeRecord
 
 
 CANDIDATE = "a" * 64
@@ -73,6 +75,16 @@ def _write_promotion_evidence(
                     "finished_at": "2026-09-27T00:01:00Z",
                     "elapsed_s": 60.0,
                     "artifact_index": {
+                        "candidate_intervention": arm == "candidate",
+                        "initial_observation_identity": {
+                            "state_sha256": f"{pair['seed']:064x}",
+                            "camera_sha256": {},
+                        },
+                        "trajectory_index": {
+                            "artifact_sha256": {
+                                "actions": ("a" if arm == "parent" else "b") * 64,
+                            },
+                        },
                         "videos": {
                             camera: str(video)
                             for camera in ("agentview", "wrist", "multiview")
@@ -86,17 +98,21 @@ def _write_promotion_evidence(
             "".join(json.dumps(record) + "\n" for record in records),
             encoding="utf-8",
         )
-        decisions.append({
-            "decision_id": f"gate-{candidate[:8]}-{kind}",
-            "kind": kind,
-            "candidate_sha256": candidate,
-            "parent_sha256": parent,
-            "paired_count": len(pairs),
-            "parent_successes": 0,
-            "candidate_successes": len(pairs),
-            "candidate_safety_events": 0,
-            "passed": True,
-        })
+        decisions.append(evaluate_paired_gate(
+            kind=kind,
+            candidate_sha256=candidate,
+            parent_sha256=parent,
+            candidate_records=[
+                EpisodeRecord.from_dict(record)
+                for record in records if record["logical_id"].endswith("-candidate")
+            ],
+            parent_records=[
+                EpisodeRecord.from_dict(record)
+                for record in records if record["logical_id"].endswith("-parent")
+            ],
+            expected_seeds=tuple(pair["seed"] for pair in pairs),
+            same_seed_pass_rate=0.5 if kind == "same_seed" else 1.0,
+        ).as_dict())
     gates_path.write_text(
         "".join(json.dumps(row) + "\n" for row in decisions), encoding="utf-8"
     )
@@ -308,6 +324,24 @@ def test_report_recounts_development_gate_episodes(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="lacks complete valid episode evidence"):
+        _score_task(campaign, row, COMMIT)
+
+
+def test_report_rejects_unattributed_same_seed_success(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    ledger = (
+        campaign / "state/candidates" / CANDIDATE
+        / "gates/same_seed/ledgers/valid.jsonl"
+    )
+    records = [json.loads(line) for line in ledger.read_text().splitlines()]
+    for record in records:
+        if record["logical_id"].endswith("-candidate"):
+            record["artifact_index"]["candidate_intervention"] = False
+    ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="causal recomputation"):
         _score_task(campaign, row, COMMIT)
 
 
