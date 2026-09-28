@@ -1797,3 +1797,28 @@ step 11（第一个 policy 动作），符合权重改变而环境 reset 未改�
 EpisodeRecord 中的索引一致；此前 16 条完成记录还核对了开发 seed、
 逐 seed policy RNG、空 bundle、无 recovery 介入、官方 horizon、三路
 视频和延迟文件，问题为 0。
+
+### SFT 权重加载与 LIBERO-10-T 早期偏差排查（2026-09-28）
+
+正确 SFT checkpoint 的 812 个张量名及形状与运行时模型的 813 个
+state-dict 项逐一比较，唯一缺失项是
+`paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight`；
+它与 checkpoint 中已有的 `paligemma_with_expert.paligemma.lm_head.weight`
+在模型里是**同一个 tied parameter / 同一存储**，不是随机未加载的
+语言 embedding。没有多余 key，也没有形状不匹配。因此现阶段不能把
+偏差归因于 `strict=False` 静默丢弃主要模型权重。
+
+新 SFT 矩阵完成 LIBERO-10-T 的首轮每任务各一条开发 seed 时，10/10
+均为官方失败。这只是每任务 1/50 的开发集观察，不能与论文 Table 3
+使用的 held-out seeds 1--20 直接比较，也不能估计正式成功率；但与
+[论文](https://arxiv.org/html/2608.16590) 对 LIBERO-10-T 报告的
+50.0% 纯 VLA 测试平均相距较大，值得继续核对。历史旧权重 v6 的同组
+50-seed 开发集中，task2/5/6/7 也各为 0/50，说明这个疑点不是
+更换 SFT 权重后才出现。论文 Appendix B 的底层 task ID 与当前安装的
+LIBERO-Pro 套件映射相符，T 为 instruction-redirection，S 为位置交换；
+运行时还强制核对 BDDL task language。[公开上游 Zetta preset](https://github.com/air-embodied-brain/Zetta-Embodiment/blob/main/rollout_runtime/config/presets/zetta_libero_pi05.yaml) 明确使用
+`RLinf-Pi05-LIBERO-SFT`、5-action chunk、5 denoising steps、
+`flow_sde`，当前 runtime 与之一致。论文正文未提供 checkpoint 文件
+SHA-256 或逐任务开发 seed 列表，故最终数值偏差的原因目前**未证实**；
+不应为了贴近表格改动已冻结的 seed、任务或成功判定。新矩阵继续执行，
+待每任务 50 条开发证据和最终隔离测试齐备后再作同口径判断。
