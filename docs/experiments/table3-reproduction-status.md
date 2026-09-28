@@ -1605,3 +1605,18 @@ parent、generation 和 gate decision IDs 必须一致；同种子 gate 的冻�
 固定 20-seed held-out gate 均须存在。测试模式下 held-out 结果只用于
 报告，不要求其 `passed=true` 才允许晋级；这避免使用留出集选择候选。
 测试覆盖缺失门限、回归失败和 promotion ID 漂移，相关测试共 10 项通过。
+
+### v6 不确定诊断的探索性候选试验（2026-09-28）
+
+为推进实际 recovery 构建，选取旧 v6 LIBERO-10-T task4 的最大失败簇
+（50/50 条开发失败）进行可证伪假说试验。该 campaign 原先因诊断无法
+区分 VLA 放置/复核错误与底层命令实现误差而停在
+`no_actionable_cluster_diagnosis`，且无既有候选、gate 或 promotion。
+已通过仓库内审计式授权接口写入
+`provisional-21e69887fe2bef365ad3a368`，将其状态重新开启到
+`propose`；同种子门限保持 25/50，`skip_regression=false`，目标簇
+历史回归仍须 50/50，授权截止 2026-09-30 23:59:59 UTC。此项在旧
+v6 矩阵内独立探索，不改变 v7 冻结代码、计划、队列或成绩；该授权
+明确把未来 held-out 标作验证而非无偏最终测试，因此即使候选通过，
+也不能直接填入正式 Table 3。授权写入时尚未生成候选或消耗 held-out。
+同期 v7 开发基线只读审计通过 182/2000 条，问题 0，队列 failed 0。
