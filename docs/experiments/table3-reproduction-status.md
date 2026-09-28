@@ -1647,3 +1647,30 @@ false，就会拒绝出表；相关测试增至 12 项通过。该检查仍只�
 episode 做只读重算，98 条 valid arm 的重算 decision 与账本逐字段一致
 （41/49 candidate 成功、parent 0/49、无安全事件）；这验证审计器可读
 真实 gate 格式，但 v3 逐次 policy RNG 缺陷仍使其不具备正式配对效力。
+
+### v6 task4 provisional 候选及触发位置审计（2026-09-28）
+
+在既有授权 `provisional-21e69887fe2bef365ad3a368` 下，单独执行一次
+Stage2 proposal，得到不可变候选
+`154f391aa788d56693c076e378dde0a3bf2e63afffe621b80e8a978ee0b55354`。
+它试图在第二次放置时拒绝未验证的夹爪张开，然后以完整任务语言重新调用
+VLA；critic 实际触发条件却将 step 固定在 178--207，并要求
+`command.gripper < -0.5`。候选已进入 `same_seed_gate`，冻结 50 个
+开发配对；复用 50 条有效 parent 基线，另有 50 条 candidate arm 已入
+v6 队列。该队列目前没有 worker，尚无 candidate 的真实物理 rollout、
+gate decision、regression、promotion 或 held-out 结果。
+
+只读 shadow replay 对全部 50 条目标失败轨迹显示 33 条在该窗口触发，
+17 条未触发；因无已知轨迹分叉点和成功对照，预检结论是
+`inconclusive_without_success_control_online_gate_required`，不能解释为
+33 条正确捕获第二次放置。额外按基线 `trajectory/actions.jsonl` 的夹爪
+开/闭状态逐条核对，50 条中没有一条由闭到开的转换发生于 step
+178--207。典型 rollout-030 的两次张开约在 step 105、233，rollout-044
+约在 step 95、215、226；因此此候选当前规则很可能在第一轮松手后仍
+保持张开的阶段介入，反而错过它声称针对的第二次松手。此处是开发集上
+发现的可证伪机制问题，不应凭窗口内有 33 次触发就宣称 recovery 生效。
+应保留本候选与 gate 的不可变证据，待有空闲运行容量时执行物理 gate；
+若门限未通过，再由失败证据驱动下一轮候选，不调整冻结 seed 或门限。
+
+同期正式 v7 只读审计为 303/2000 条开发基线有效、问题 0、failed 队列 0，
+3 条 worker 在运行；v6 的探索性候选不得并入 v7 Table 3 成绩。
