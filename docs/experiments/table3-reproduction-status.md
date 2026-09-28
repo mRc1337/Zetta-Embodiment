@@ -1538,3 +1538,11 @@ recovery，后续需要绕开桌面障碍并验证实际柜体接触，不能计
 
 同期 v7 队列跨全部 40 任务完成了首轮各一条基线；早期 `46/46`
 completed episode 均 `valid`，视频与延迟摘要齐全，留出种子命中 0。
+
+v6 队列长期无 `pending` / `running`，其剩余一个 worker 也确认无子任务后
+退出；v6 控制器、诊断代理和全部历史 ledger 保留，不删除/改写。
+释放的 GPU3 槽位交给 v7，使其达到先前验证过的三 worker 总并发。
+切换后的 v7 快照为 `pending=1938`、`running=3`、`completed=59`、
+`failed=0`；59 条 completed 均 `valid`。GPU3 约 14/24 GiB，
+runtime health `status=ok`、`heartbeat_failed=0`。若 v6 控制器后续
+产生新队列任务，它们会等待 worker，不会自动并发抢占 v7 槽位。
