@@ -3300,6 +3300,9 @@ def _evolution_policy(store: CampaignStore) -> dict[str, Any]:
         "defer_inconclusive_for_provisional": bool(
             raw.get("defer_inconclusive_for_provisional", False)
         ),
+        "strict_inconclusive_hypothesis_trials": bool(
+            raw.get("strict_inconclusive_hypothesis_trials", False)
+        ),
     }
     if not 0 < policy["same_seed_pass_rate"] <= 1:
         raise ValueError("same_seed_pass_rate must be in (0, 1]")
@@ -4625,6 +4628,25 @@ def _route_inconclusive_diagnosis(
     """Skip an unresolved cluster without allowing an unfalsifiable candidate."""
 
     policy = _evolution_policy(store)
+    if policy["strict_inconclusive_hypothesis_trials"] and (
+        len(diagnosis.competing_hypotheses) >= 2 and diagnosis.falsifier.strip()
+    ):
+        # A falsifiable leading hypothesis may be tested without changing the
+        # frozen same-seed, regression, or held-out gates. The diagnosis remains
+        # explicitly inconclusive until live evidence resolves it.
+        store.transition(
+            CampaignPhase.PROPOSE,
+            state_updates={
+                "optimization_outcome": "strict_inconclusive_trial",
+                "strict_inconclusive_trial": True,
+            },
+        )
+        return {
+            **diagnosis.as_dict(),
+            "optimization_outcome": "strict_inconclusive_trial",
+            "candidate_created": False,
+            "strict_gate_unchanged": True,
+        }
     if policy["defer_inconclusive_for_provisional"]:
         store.transition(
             CampaignPhase.COMPLETE,
@@ -5048,7 +5070,12 @@ def _run_proposal_stage_locked(
         raise ValueError("proposal requires an accepted diagnosis")
     diagnosis = _diagnosis(rows[-1])
     provisional = _load_provisional_authorization(store, diagnosis)
-    if _diagnosis_is_inconclusive(diagnosis) and provisional is None:
+    strict_inconclusive = (
+        _diagnosis_is_inconclusive(diagnosis)
+        and state.get("strict_inconclusive_trial") is True
+        and _evolution_policy(store)["strict_inconclusive_hypothesis_trials"]
+    )
+    if _diagnosis_is_inconclusive(diagnosis) and provisional is None and not strict_inconclusive:
         raise ValueError("proposal cannot use an inconclusive diagnosis")
     policy = _evolution_policy(store)
     rejected_rounds = _rejected_candidates_for_cluster(store, diagnosis.cluster_id)
@@ -5160,6 +5187,7 @@ def _run_proposal_stage_locked(
         available_critic_features=observed_features,
         refinement_context=refinement_context,
         provisional_hypothesis=provisional,
+        strict_inconclusive_trial=strict_inconclusive,
     )
     allowed = _frozen_tool_names(tool_catalog)
     selected = {step.tool for rule in candidate.recovery_rules for step in rule.steps}

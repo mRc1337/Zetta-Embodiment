@@ -541,6 +541,48 @@ def test_inconclusive_diagnosis_can_defer_secondary_for_provisional(
     )
 
 
+def test_inconclusive_diagnosis_can_enter_strict_hypothesis_trial(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "strict-inconclusive"
+    manifest = replace(
+        _manifest(),
+        runtime={
+            "evolution_policy": {
+                "same_seed_pass_rate": 0.5,
+                "defer_inconclusive_for_provisional": True,
+                "strict_inconclusive_hypothesis_trials": True,
+            }
+        },
+    )
+    store = CampaignStore(root)
+    store.initialize(manifest)
+    store.transition(CampaignPhase.CLUSTER)
+    store.transition(CampaignPhase.DIAGNOSE)
+    diagnosis = replace(
+        _FakeAgent().diagnose(
+            cluster=type("Cluster", (), {"cluster_id": "cluster-unresolved"})()
+        ),
+        root_cause="Inconclusive. Two owner-layer hypotheses remain testable.",
+        owner_layer="unknown",
+    )
+    store.register_diagnosis(diagnosis)
+
+    report = _route_inconclusive_diagnosis(
+        store=store,
+        diagnosis=diagnosis,
+        targets=[{"rank": 0, "cluster_id": "cluster-unresolved"}],
+        target_rank=0,
+    )
+
+    state = store.state()
+    assert state["phase"] == CampaignPhase.PROPOSE.value
+    assert state["strict_inconclusive_trial"] is True
+    assert report["strict_gate_unchanged"] is True
+    assert state.get("provisional_authorization_id") is None
+    assert store.manifest().runtime["evolution_policy"]["same_seed_pass_rate"] == 0.5
+
+
 def _terminal_provisional_campaign(
     tmp_path: Path,
     *,

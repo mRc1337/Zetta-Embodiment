@@ -594,6 +594,9 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
             LIBERO_PROVISIONAL_MIN_DIAGNOSIS_CONFIDENCE
         ),
         "defer_inconclusive_for_provisional": True,
+        # Keep the paper's strict gates while testing one falsifiable leading
+        # hypothesis when offline owner-layer diagnosis remains uncertain.
+        "strict_inconclusive_hypothesis_trials": True,
     }
     runtime = {
         "evolution_policy": evolution_policy,

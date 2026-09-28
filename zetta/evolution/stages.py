@@ -156,6 +156,11 @@ diagnosis became conclusive. Diagnosis confidence ranks which hypothesis to
 test; it is not an authorization threshold and is not evidence that the root
 cause is confirmed. Label the change as a bounded provisional hypothesis test.
 The live gate is the distinguishing experiment.
+When ``strict_inconclusive_trial`` is true, select one leading falsifiable
+competing hypothesis without claiming the root cause is settled. The ordinary
+frozen same-seed, regression, and held-out protocol remains unchanged; no
+relaxed provisional authorization applies. State what live result would reject
+this hypothesis, and target only its predicted failure phenotype.
 Prefer semantic target-progress, grasp-retention, and correct-target predicates
 over episode step counters. During refinement, use the Harness-provided
 previous_detector_replay metrics as a hard design diagnostic. If the rejected
@@ -2071,6 +2076,7 @@ class CodexStageAgent:
         refinement_context: dict[str, Any] | None = None,
         parent_bundle: CandidateBundle | None = None,
         provisional_hypothesis: dict[str, Any] | None = None,
+        strict_inconclusive_trial: bool = False,
     ) -> CandidateBundle:
         if (parent_bundle is None) != (parent_sha256 is None):
             raise ValueError("parent bundle artifact and digest must be supplied together")
@@ -2120,6 +2126,7 @@ class CodexStageAgent:
                 if provisional_hypothesis is not None
                 else None
             ),
+            "strict_inconclusive_trial": bool(strict_inconclusive_trial),
             "tool_catalog": tool_catalog,
             "frozen_parent_bundle": (
                 parent_bundle.as_dict() if parent_bundle is not None else None
