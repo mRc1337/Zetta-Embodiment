@@ -1783,6 +1783,42 @@ class LiberoPrimitives:
             return value
 
         start = plan()
+        diagnostic_trace: list[dict[str, Any]] | None = (
+            [] if os.environ.get("ZETTA_NON_SCORED_JOINT_CONTACT_TRACE") == "1" else None
+        )
+
+        def capture_contact(label: str) -> None:
+            if diagnostic_trace is None:
+                return
+            try:
+                current = plan()
+                raw = self.env.privileged_contacts(max_contacts=32)
+                contacts = raw.get("contacts", []) if isinstance(raw, dict) else []
+                relevant = [
+                    {
+                        "geom1": item.get("geom1"),
+                        "geom2": item.get("geom2"),
+                        "normal_force_n": item.get("normal_force_n"),
+                    }
+                    for item in contacts
+                    if isinstance(item, dict) and item.get("involves_robot")
+                ]
+                diagnostic_trace.append(
+                    {
+                        "label": label,
+                        "step": int(self.env.episode_steps),
+                        "eef_position_world": np.asarray(
+                            self._last_obs_eef_pos, dtype=float
+                        ).reshape(3).tolist(),
+                        "press_position_world": current["press_position_world"],
+                        "qpos": current["qpos"],
+                        "contacts": relevant[:12],
+                    }
+                )
+            except Exception as exc:
+                diagnostic_trace.append({"label": label, "error": type(exc).__name__})
+
+        capture_contact("start")
         slide_joint = str(start.get("joint_type", "")).casefold() == "slide"
         actions_before = int(self.env.episode_steps)
         sweep_steps = 0
@@ -1875,6 +1911,8 @@ class LiberoPrimitives:
                 sweep_steps += 1
                 used += 1
                 window_steps += 1
+                if sweep_steps % 8 == 0:
+                    capture_contact(f"sweep-{sweep_steps}")
                 if terminal():
                     break
                 after = plan()
@@ -1948,6 +1986,7 @@ class LiberoPrimitives:
                 tol=0.008,
                 max_steps=36,
             )
+            capture_contact("after-retreat")
             if not terminal():
                 current = plan()
                 approach = np.asarray(
@@ -1961,6 +2000,7 @@ class LiberoPrimitives:
                     tol=0.01,
                     max_steps=40,
                 )
+                capture_contact("after-approach")
             if not terminal():
                 current = plan()
                 self.move_pose(
@@ -1971,8 +2011,13 @@ class LiberoPrimitives:
                     gripper=1.0 if (slide_joint and slide_grasp) else -1.0,
                     step_clip=0.012,
                     tol=0.005,
-                    max_steps=32,
+                    # In the Pro cabinet the OSC controller realizes only
+                    # about 3 mm of downward travel per command.  The old
+                    # 32-step cap left the EEF ~10 cm above the handle, so
+                    # the subsequent tangent sweep hit tabletop objects.
+                    max_steps=80 if (slide_joint and slide_grasp) else 32,
                 )
+                capture_contact("after-press")
             if not terminal():
                 for _ in range(close_steps):
                     action = np.zeros(7, dtype=np.float32)
@@ -1986,7 +2031,7 @@ class LiberoPrimitives:
             satisfied, _, _ = sweep(budget=remaining)
 
         final = plan()
-        return {
+        result = {
             "name": "semantic_joint_interact",
             "entity": entity,
             "joint": str(final["joint"]),
@@ -2004,6 +2049,18 @@ class LiberoPrimitives:
             "interrupted_by_critic": self.critic_interrupted(),
             "libero_terminated": self.env.episode_terminated,
         }
+        if diagnostic_trace is not None:
+            result["non_scored_contact_trace"] = diagnostic_trace
+            destination = os.environ.get("ZETTA_NON_SCORED_JOINT_TRACE_OUTPUT")
+            if destination:
+                from zetta.evolution.jsonio import atomic_write_json
+
+                atomic_write_json(
+                    Path(destination),
+                    {"tool": "semantic_joint_interact", "trace": diagnostic_trace},
+                    overwrite=False,
+                )
+        return result
 
     def release(
         self,

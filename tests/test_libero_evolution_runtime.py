@@ -986,9 +986,11 @@ def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
     )  # type: ignore[arg-type]
     primitives.set_obs(env._obs())
     move_grippers: list[float] = []
+    move_budgets: list[int] = []
 
     def record_move_pose(_position: list[float], **kwargs: Any) -> dict[str, Any]:
         move_grippers.append(float(kwargs["gripper"]))
+        move_budgets.append(int(kwargs["max_steps"]))
         return {"status": "recorded"}
 
     primitives.move_pose = record_move_pose  # type: ignore[method-assign]
@@ -999,6 +1001,7 @@ def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
     assert result["recontacted"] is True
     assert result["direct_contact_steps"] == 0
     assert move_grippers == [-1.0, 1.0, 1.0]
+    assert move_budgets == [36, 40, 80]
     assert all(float(action[6]) == pytest.approx(1.0) for action in env.actions)
 
 

@@ -95,6 +95,7 @@ def main() -> int:
             "CUDA_VISIBLE_DEVICES": str(args.gpu),
             "MUJOCO_GL": "egl",
             "PYOPENGL_PLATFORM": "egl",
+            "ZETTA_NON_SCORED_JOINT_TRACE_OUTPUT": str(root / "contact-trace.json"),
             "PYTHONPATH": str(repo)
             + (os.pathsep + environment["PYTHONPATH"] if environment.get("PYTHONPATH") else ""),
         }
