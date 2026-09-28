@@ -1236,3 +1236,35 @@ runtime、三 worker、controller 和最终纯 VLA watcher 均存活，环境服
 健康。实验目录约 35 GB，所在文件系统剩余约 688 GB；进入候选 gate 后
 仍需持续观察视频证据的磁盘占用。此处只证明 development baseline 的
 推进与证据完整性，不能报告恢复策略、held-out 或 Table 3 成绩。
+
+### v6 全矩阵 baseline 2000/2000 完成与首个诊断（2026-09-28 00:07 UTC）
+
+冻结的 40-task development 队列达到 `completed=2000`、`running=0`、
+`pending=0`，每任务恰有 50 条有效 rollout。全量逐条审计确认：2,000 个
+`(task, logical ID)` 无重复或缺失；每条 job 的 seed/policy RNG 匹配冻结
+manifest；episode record 为 `status=valid` 且身份字段匹配；三路 MP4
+非空、`latency/summary.json` 存在，证据缺口为 0。development baseline
+合计 424 次 official success，这只是开发集观测值，**不是** Table 3
+留出集成绩。11 条历史 failed attempt 均为 `infra_invalid`，各自已有保持
+原 logical ID、seed、policy RNG 的有效重试，故不计入策略分母。
+
+控制器按轮询周期摄取结果：该快照 40 个 campaign ledger 合计 1,974 条，
+其中 15 个任务已入账 50/50；阶段分布为 `rollout=25`、`cluster=13`、
+`diagnose=1`、`propose=1`。队列完成不等于演化完成；其余 ledger 尚须继续
+入账，随后还要完成候选构建、same-seed gate、历史回归、隔离 held-out
+评估与最终 pure-VLA 对照。文件系统剩余约 676 GB。
+
+首个进入 `propose` 的 Goal-T task0 有 50 条有效开发集、0 次成功，未接触
+held-out seeds 1--20。多模态聚类的初步视觉解释曾认为底部抽屉被部分拉开，
+但 Stage-1 结合两条必需遥测和图像后给出更具体的相反诊断：VLA 选中了
+中间抽屉，`middle_level` 大幅移动、目标 `bottom_level` 不动，官方目标进度
+仍为 0。诊断已通过结构化校验，要求后续在匹配初始状态上分别执行普通 VLA、
+底部关节和中间关节分支以证伪；它仍只是待验证的因果假说，不是 recovery
+成功证据。Stage-1 请求一度出现自动恢复的响应流断连，但未返回 401。
+
+审计注意点：Stage-1 代理在读取已授权的两份开发集遥测后，因工具重复读取
+返回缓存引用，转而通过命令行直接查看本地 `.harness-private/artifact-resolver.json`
+中相同 content ID 的 `value`。已观察到的命令只读取这些开发集遥测值，未见
+held-out 访问；不过这条路径不计入 `read_campaign_artifact` 访问日志，需在
+候选晋升前继续核对代理完整 transcript 与数据隔离，不应仅以访问日志证明
+所有诊断证据均来自受控读取。
