@@ -32,6 +32,9 @@ SFT checkpoint、norm stats、runtime 配置的文件哈希与此 plan 绑定，
 入队；首次观察为 1997 pending、3 running、0 completed、0 failed。
 前三个 running job 均为开发 seed、`bundle=None`，runtime `/healthz`
 正常；测试 seed 1--20 未入队。三条 v9 worker 和调度器在 GPU3 上运行。
+首批 3 条 LIBERO-10-S task0--2 开发基线均为 `valid`，官方成功判定
+均为 false，三路视频和延迟文件齐全；对 21 个轨迹/视频 artifact 的
+记录哈希与实际文件逐一核对，0 个不匹配，0 个测试 seed 混入，未发现 401。
 
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
