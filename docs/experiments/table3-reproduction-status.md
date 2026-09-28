@@ -1318,3 +1318,21 @@ ledger 记录 parent 成功 `0/50`、candidate 成功 `1/50`、candidate wins `1
 工具参数未改变；提前介入是待检验假说，不是经验证的提升。第二轮 50 条
 candidate job 已由控制器排入同种子 gate 队列，结果待收齐。旧 v3 的
 `401 Unauthorized` 与这轮 v6 容量故障均未计入策略分母，不能混同。
+
+### v6 第二轮期间发现的抽屉工具接口缺口（2026-09-28 01:18 UTC）
+
+第二轮候选把介入提前至第 78 步，但最初 9 条有效候选 episode 虽均有
+Actor 实际执行，目标 `bottom_level` 的结束 qpos 仍为 `0.0`，任务均失败。
+这是进行中的开发集观察，不是正式 gate 结果。
+
+代码核查发现 `LiberoPrimitives.semantic_joint_interact` 的执行签名支持
+`slide_grasp: bool = False`，且其抽屉路径用该参数决定是否闭合夹爪；然而
+冻结的 `goal-t/task-00/tool-catalog.json` 未公布这个参数。
+`_validate_recovery_tool_parameters` 会拒绝携带 `slide_grasp=true` 的候选；
+对当前 bundle 的内存副本所做非计分校验明确返回
+`ValueError: ... outside its frozen schema: ['slide_grasp']`。其他检查的
+`move_pose`、`set_gripper`、`release` 参数表与执行签名一致。故当前 v6
+Agent 不能通过该工具提出闭合夹爪的抽屉拉动变体；这属于实验能力边界，
+不能误报为已经检验了 `slide_grasp=true`。当前第二轮 gate 的冻结 catalog
+保持不变，待其结束后须在新版本/明示迁移的实验链路中修复接口并重新验证，
+不得把新参数静默混入已经冻结的 v6 gate。
