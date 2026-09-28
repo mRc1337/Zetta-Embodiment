@@ -979,6 +979,29 @@ def test_semantic_joint_interact_keeps_gripper_open_for_slide_push() -> None:
     assert all(float(action[6]) == pytest.approx(-1.0) for action in env.actions)
 
 
+def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
+    env = _SemanticSlideActionTraceEnv()
+    primitives = LiberoPrimitives(
+        env, _PrimitiveModel(), object(), allow_privileged_actions=True
+    )  # type: ignore[arg-type]
+    primitives.set_obs(env._obs())
+    move_grippers: list[float] = []
+
+    def record_move_pose(_position: list[float], **kwargs: Any) -> dict[str, Any]:
+        move_grippers.append(float(kwargs["gripper"]))
+        return {"status": "recorded"}
+
+    primitives.move_pose = record_move_pose  # type: ignore[method-assign]
+    result = primitives.semantic_joint_interact(
+        "wooden_cabinet_1", "bottom_level", direction="lower", slide_grasp=True
+    )
+
+    assert result["recontacted"] is True
+    assert result["direct_contact_steps"] == 0
+    assert move_grippers == [-1.0, 1.0, 1.0]
+    assert all(float(action[6]) == pytest.approx(1.0) for action in env.actions)
+
+
 def test_semantic_joint_catalog_exposes_all_executable_parameters() -> None:
     tool = next(row for row in TOOLS_SPEC if row["name"] == "semantic_joint_interact")
     properties = tool["input_schema"]["properties"]

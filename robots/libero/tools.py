@@ -1965,7 +1965,10 @@ class LiberoPrimitives:
                 current = plan()
                 self.move_pose(
                     list(current["press_position_world"]),
-                    gripper=-1.0,
+                    # Keep a slide-handle grasp closed through contact.  The
+                    # previous open command undid the close-on-approach just
+                    # before the tangent sweep tried to pull the drawer.
+                    gripper=1.0 if (slide_joint and slide_grasp) else -1.0,
                     step_clip=0.012,
                     tol=0.005,
                     max_steps=32,
