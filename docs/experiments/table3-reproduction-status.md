@@ -1363,3 +1363,11 @@ candidate_successes `0`、candidate_wins `0`、安全事件 `0`、
 剩余时域内。该候选试图区分“底部抽屉目标没被 VLA 重新接地”与“语义关节
 工具的接触方式无效”；它不是已经成功的 recovery。第三轮 50 条同种子
 candidate job 已排入队列，正式 gate 待结果。
+
+为解除下一版本的抽屉工具接口缺口，已在独立的
+`v7-drawer-tool-catalog` 分支提交 `ddd2409`：给
+`semantic_joint_interact` 的公开 schema 加入布尔 `slide_grasp`，并测试
+schema 与执行签名一致、候选校验接受该参数。相关 74 项测试通过。
+该分支未并入正在运行的 v6 主工作树，也未修改 v6 已冻结的 catalog、
+manifest、候选 bundle 或门禁结果；需要新 lineage 的非计分开发集
+smoke 与正式 gate 才能判断闭合夹爪拉抽屉是否真的有效。
