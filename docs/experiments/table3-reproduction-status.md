@@ -56,6 +56,19 @@ v9 preflight。论文没有公开其精确权重 SHA，因此这只能排除已�
 输出写入 `/tmp/zetta-table3/v9-controller.log` 便于追踪。此操作没有
 重新生成 seed、重跑有效 episode 或触碰测试集。
 
+后续在每个 task 各有 2 条开发集基线记录时，40/40 个 task-setting
+均已覆盖，80 条记录均为 `valid`；预注册 seed/策略 RNG 校验 0 违例，
+测试 seed 1--20 仍未使用。四组成功数依次为 Goal-T 2/20、Goal-S
+5/20、LIBERO-10-T 0/20、LIBERO-10-S 0/20。这不是论文固定测试集
+成绩；但 LIBERO-10-T 的早期表现与论文 Table 3 报告的 50% 测试基线
+明显不一致。旧 v8 使用同一 SFT checkpoint 和相同开发 seed 的前期
+123 条记录中，LIBERO-10-T 也为 0/30，故差异不能简单归因于 v9
+状态机修正。已核对长程 task 的实际 BDDL 指令、运行时 prompt override、
+5-step 动作块及 LIBERO-Pro suite 选择，尚未定位确定的实现错误；论文
+未提供其冻结 Pi0.5 权重文件的精确哈希，当前不能证明本地 SFT 权重与
+论文实际权重完全一致。继续保留 v9 开发集证据，但在解释最终结果前
+必须单独说明这项基线不一致。
+
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
 `queue/pending/paused_early_heldout_protocol`，未删除。v8 不计入 v9。
