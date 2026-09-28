@@ -1306,10 +1306,14 @@ held-out 证据决定。
 46 条 attempt-1 保持原 logical ID、seed、policy RNG 与 bundle SHA-256；
 50 条候选 episode 均有实际 Role1 介入、非空视频及延迟摘要。正式 gate
 ledger 记录 parent 成功 `0/50`、candidate 成功 `1/50`、candidate wins `1`、
-安全事件均为 `0`，但 `passed=false`：冻结门槛要求至少 `25/50`，且未确认
-可归因的成功救援。唯一的成功翻转在 p019/seed 24307 上出现；其受审计
-交互实际执行，但该交互的关节目标反馈未报告成功，所以只可说观察到同种子
-结果翻转，不能断言成功由恢复动作造成。50 对的 reset-state binding 一致，
+安全事件均为 `0`，但 `passed=false`：冻结门槛要求至少 `25/50`。
+复核后续 Stage-2 的结构化 gate 历史，首轮的
+`causally_attributed_success_count=1`：唯一的成功翻转在 p019/seed 24307
+上满足失败 parent、成功 candidate、轨迹改变和 Actor 介入见证这四项形式
+条件。该交互的关节目标反馈本身未报告成功，因此形式化归因不等于已经
+证实“抽屉被该动作拉开”的物理机制；不能仅凭这一例断言可复现救援。
+gate rationale 中“未达到门槛、无可归因救援或安全退化”是通用 OR 文案，
+不能从它推断每个分句都成立。50 对的 reset-state binding 一致，
 32 对精确 camera digest 不同，亦记录在 gate rationale 中。
 
 控制器按原失败簇进入 `refine_active_cluster`，第二轮 Stage-2 已生成候选
@@ -1336,3 +1340,26 @@ Agent 不能通过该工具提出闭合夹爪的抽屉拉动变体；这属于�
 不能误报为已经检验了 `slide_grasp=true`。当前第二轮 gate 的冻结 catalog
 保持不变，待其结束后须在新版本/明示迁移的实验链路中修复接口并重新验证，
 不得把新参数静默混入已经冻结的 v6 gate。
+
+### v6 Goal-T task0 第二轮正式门禁（2026-09-28 01:35 UTC）
+
+第二轮候选 `c60cdffb16130317fceb46d246012b0603487d819b790bf286a4a8caddcff4d6`
+的 50 条 candidate episode 全部有效，logical ID 唯一，seed/policy RNG 与
+冻结的 50 对计划一致，bundle SHA-256 正确，Role1 Actor 均实际介入，视频
+均非空；没有新 infra-invalid 或 401。50 条 Actor 反馈均显示目标抽屉
+`bottom_level` 的结束 qpos 为 `0.0`，`joint_goal_satisfied=false`。
+正式 `gates.jsonl` 记载 paired_count `50`、parent_successes `0`、
+candidate_successes `0`、candidate_wins `0`、安全事件 `0`、
+`passed=false`；50 对 reset-state binding 匹配，33 对精确 camera digest
+不同。故提前介入未修复该失败簇，不可报告为恢复成功。控制器进入第 3 轮
+`propose`；当前 v6 catalog 仍缺少 `slide_grasp`，继续提出的候选只能在
+已冻结的工具能力内迭代。若需检验该参数，必须另立工具 catalog 版本和
+可审计的实验 lineage，不能更改本轮已冻结的 manifest 或历史记录。
+
+第 3 轮 Stage-2 随后提出 bundle
+`a0a2701c20b5d4727b6f3cb0774ef81de8602c94ca6678c1ba94d915e113a192`：
+保留第 78 步触发，但将无效的 `semantic_joint_interact` 换成 Actor 执行的
+`vla_execute`，用原始完整任务指令重新规划，保持每 chunk 5 动作并限制在
+剩余时域内。该候选试图区分“底部抽屉目标没被 VLA 重新接地”与“语义关节
+工具的接触方式无效”；它不是已经成功的 recovery。第三轮 50 条同种子
+candidate job 已排入队列，正式 gate 待结果。
