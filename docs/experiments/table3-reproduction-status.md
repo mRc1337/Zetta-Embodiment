@@ -11,14 +11,31 @@
 **2026-09-28 方法学修正（进行中）：**论文 §4.1 明确要求 LIBERO-Pro
 seed 1--20 只在演化完成后做最终测试。此前实现虽不依据测试结果选择候选，
 却在每次通过开发 gate 后、晋级前运行相同的 20 个测试 seed；这不符合
-“整个演化过程未见测试集”的要求。已停止 v8 的旧版演化调度器，保留三条
-worker 继续完成已排队的 2000 条开发基线；目前无测试 seed 入队。
+“整个演化过程未见测试集”的要求。已停止 v8 的旧版演化调度器；
+测试 seed 未入队。
 源码已改为 `heldout_mode=test` 在开发 gate 通过后直接晋级，且晋级时
 拒绝存在中途 held-out gate 的候选。独立的演化结束后最终纯 VLA、
 最终 harness 评测入口与新汇总器已接入，并针对 seed/RNG/bundle 漂移
 添加拒绝用例；相关 54 项测试通过。尚未完成真实全矩阵评测，v8 基线
-只能暂作探索证据，不能据此宣称正式 Table 3 已复现；后续需由修正后的
-冻结代码重新启动正式矩阵并验证评测时序。
+只能暂作探索证据，不能据此宣称正式 Table 3 已复现。
+
+### v9 修正协议矩阵启动（2026-09-28）
+
+修正后的代码提交 `adf4eb69c6c7ad00683fee806a4c3f4da50c09d9` 已在独立
+worktree 冻结。新矩阵位于
+`.local-repro/liberopro-paper-v9-sft-matrix-20260928`，仍用 master seed
+`260816590`、相同的 40 个 task、每 task 50 个开发 seed；与 v8 的 seed/RNG
+排程逐项相同。新 campaign plan SHA-256 为
+`75c908dee8a0ac301aa6a9a101c455fa19739145fee0468dfba44db58cba8f2c`。
+SFT checkpoint、norm stats、runtime 配置的文件哈希与此 plan 绑定，
+预检返回 `pass`。40 个 campaign 已初始化，2000 个纯 VLA 开发基线作业
+入队；首次观察为 1997 pending、3 running、0 completed、0 failed。
+前三个 running job 均为开发 seed、`bundle=None`，runtime `/healthz`
+正常；测试 seed 1--20 未入队。三条 v9 worker 和调度器在 GPU3 上运行。
+
+旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
+0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
+`queue/pending/paused_early_heldout_protocol`，未删除。v8 不计入 v9。
 
 ## 早期单 episode artifact（错误权重下的探索证据）
 
