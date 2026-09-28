@@ -1585,3 +1585,16 @@ attempt（p037--p040）已各有原 seed、policy RNG、bundle 不变的 attempt
 每个任务全部 50 个冻结开发 seed 的纯 VLA ledger、逐次 policy RNG、
 无 bundle 状态及三路视频/延迟证据的独立校验；缺失或漂移将返回
 `incomplete`，不能仅凭 20 个留出结果宣称完成。6 项相关测试通过。
+
+进一步复核旧 v6 的 terminal state：LIBERO-10-T task1、task4、task5
+分别有 31/50、50/50、50/50 条开发失败，却因
+`no_actionable_cluster_diagnosis` 被标记为 `complete`，且没有获得经过
+验证的 recovery bundle。论文的 LIBERO-Pro 流程要求针对最大失败簇
+迭代至其开发错误种子成功率至少 50%；上述状态不满足该条件。
+因此汇总器现在仅在 50/50 开发基线全成功时允许“无 bundle”任务作为
+纯 VLA 终态，否则明确报 `unresolved development failures`、保持
+`incomplete`，不把 baseline 原样伪装为完成演化的 Zetta 成绩。
+该限制只作用于出表，不改动正在运行的 v7 冻结代码或历史 ledger。
+旧 v6 的四个 inconclusive 诊断本身分别指出混合故障表型或尚未区分的
+命令/控制成因；后续必须进一步拆分/验证原因和构造候选，而不能通过
+降低 same-seed 或 regression 门限来“补齐”成绩。

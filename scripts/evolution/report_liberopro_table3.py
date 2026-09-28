@@ -276,7 +276,7 @@ def _score_final_pure_vla(
 
 def _verify_development_baseline(
     campaign_root: Path, manifest: dict[str, Any], development: list[int]
-) -> None:
+) -> int:
     """Require the complete, frozen pure-VLA corpus before scoring a task."""
 
     records = _jsonl(campaign_root / "state/ledgers/episodes.jsonl")
@@ -286,6 +286,7 @@ def _verify_development_baseline(
             f"expected {len(development)}"
         )
     seen: set[str] = set()
+    failures = 0
     for payload in records:
         record = EpisodeRecord.from_dict(payload)
         logical_id = record.logical_id
@@ -315,6 +316,8 @@ def _verify_development_baseline(
         for path in videos.values():
             _artifact(path, campaign_root=campaign_root)
         _artifact(record.artifact_index.get("latency_summary"), campaign_root=campaign_root)
+        failures += int(record.success is False)
+    return failures
 
 
 def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> dict[str, Any]:
@@ -333,7 +336,7 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
         str(seed) for seed in (*development, *range(1, 21))
     }:
         raise ValueError("campaign policy RNG schedule is incomplete")
-    _verify_development_baseline(campaign_root, manifest, development)
+    development_failures = _verify_development_baseline(campaign_root, manifest, development)
     policy = manifest.get("runtime", {}).get("evolution_policy", {})
     if policy.get("heldout_mode") != "test" or policy.get("regression_scope") != "target_cluster":
         raise ValueError("campaign held-out or regression policy differs")
@@ -342,6 +345,11 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
         gates = list((nodes[0][0] / "candidates").glob("*/gates/heldout_20/plan.json"))
         state = read_json(nodes[0][0] / "state.json")
         if state.get("current_bundle_sha256") is None:
+            if development_failures:
+                raise ValueError(
+                    f"unresolved development failures ({development_failures}/50) "
+                    "with no validated recovery bundle"
+                )
             baseline_successes = _score_final_pure_vla(campaign_root, row, manifest)
             zetta_successes = baseline_successes
             candidate_sha = None

@@ -310,6 +310,24 @@ def test_report_scores_no_promotion_only_with_complete_pure_vla_final_test(tmp_p
     _write_json(source_path, source)
     _write_json(campaign / "state/state.json", {"phase": "complete", "current_bundle_sha256": None})
     (campaign / "state/ledgers/promotions.jsonl").unlink()
+    development_ledger = campaign / "state/ledgers/episodes.jsonl"
+    development_records = [
+        json.loads(line) for line in development_ledger.read_text(encoding="utf-8").splitlines()
+    ]
+    for record in development_records:
+        record["success"] = True
+    development_records[0]["success"] = False
+    development_ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in development_records),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unresolved development failures"):
+        _score_task(campaign, row, COMMIT)
+    development_records[0]["success"] = True
+    development_ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in development_records),
+        encoding="utf-8",
+    )
     with pytest.raises(FileNotFoundError):
         _score_task(campaign, row, COMMIT)
 
