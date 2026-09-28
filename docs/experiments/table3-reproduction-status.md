@@ -1833,3 +1833,11 @@ runtime URL/配置文件、SFT 模型权重与 LIBERO 归一化统计文件是�
 矩阵/出表测试合计 20 项通过。该检查只证明磁盘文件与配置身份，**不能**
 直接读取正在运行进程的内存权重，仍须保留启动命令、进程及 rollout
 行为证据。它不修改 v8 冻结代码、队列或 episode。
+
+v8 的 40/40 份冻结 `tool-catalog.json` 另做了只读契约核验：
+`authoritative_task_contract` 的 suite、task ID、任务语言及其规范哈希
+均与矩阵计划一致；`success_criterion` 均为 `libero_terminated`；
+每份 catalog 的工具清单与绑定清单一致，且均包含后续构造任务特定
+recovery 所需的 `privileged_pick_place`、`semantic_joint_interact` 和
+`progress_liveness`。该检查仅证明工具可见、合同一致，不能预先证明
+自动生成的 bundle 会成功或通过 same-seed/regression gate。
