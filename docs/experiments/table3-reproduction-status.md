@@ -35,6 +35,11 @@ SFT checkpoint、norm stats、runtime 配置的文件哈希与此 plan 绑定，
 首批 3 条 LIBERO-10-S task0--2 开发基线均为 `valid`，官方成功判定
 均为 false，三路视频和延迟文件齐全；对 21 个轨迹/视频 artifact 的
 记录哈希与实际文件逐一核对，0 个不匹配，0 个测试 seed 混入，未发现 401。
+随后对 6 条完成记录复核 42 个 artifact 哈希，仍全部吻合；其余
+1994 条 pending/running 开发基线的逻辑 ID、seed 和空 bundle 逐条检查，
+无重复、无测试 seed 泄漏。最终出表代码另增加了文件哈希复核，文件虽在
+但内容被改写时会拒绝出表；此报告代码的后续提交不改变 v9 冻结的
+rollout/演化代码修订。
 
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到

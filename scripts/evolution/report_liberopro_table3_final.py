@@ -67,7 +67,11 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
     ):
         raise ValueError("terminal harness state differs from frozen manifest")
     baseline_successes = _score_final_pure_vla(
-        campaign_root, row, initial, require_no_promotion=False
+        campaign_root,
+        row,
+        initial,
+        require_no_promotion=False,
+        verify_artifact_hashes=True,
     )
     if bundle_sha is None:
         if len(nodes) != 1 or failures:
@@ -79,7 +83,9 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
     else:
         if len(nodes) == 1:
             raise ValueError("promoted harness has no generation continuation")
-        zetta_successes = _score_final_harness(campaign_root, row, terminal_manifest)
+        zetta_successes = _score_final_harness(
+            campaign_root, row, terminal_manifest, verify_artifact_hashes=True
+        )
     return {
         "task_id": row["task_id"],
         "baseline_successes": baseline_successes,

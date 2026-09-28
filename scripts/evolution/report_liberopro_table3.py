@@ -20,7 +20,7 @@ from scripts.evolution.run_liberopro_final_harness import (
 )
 from scripts.evolution.run_liberopro_final_pure_vla import EVALUATION_SCOPE, evaluation_root
 from zetta.evolution.gating import evaluate_paired_gate
-from zetta.evolution.jsonio import canonical_sha256, read_json
+from zetta.evolution.jsonio import canonical_sha256, file_sha256, read_json
 from zetta.evolution.models import EpisodeRecord
 
 
@@ -49,6 +49,29 @@ def _artifact(path_value: Any, *, campaign_root: Path) -> None:
         raise ValueError("held-out evidence escapes its campaign")
     if not path.is_file() or path.stat().st_size == 0:
         raise ValueError("held-out evidence is missing or empty")
+
+
+def _verify_trajectory_artifacts(record: EpisodeRecord, *, campaign_root: Path) -> None:
+    index = record.artifact_index.get("trajectory_index")
+    if not isinstance(index, dict):
+        raise ValueError("final-test episode has no trajectory index")
+    paths = index.get("artifact_paths")
+    hashes = index.get("artifact_sha256")
+    if (
+        not isinstance(paths, dict)
+        or not isinstance(hashes, dict)
+        or not paths
+        or set(paths) != set(hashes)
+    ):
+        raise ValueError("final-test artifact path/hash manifest is incomplete")
+    for name, path_value in paths.items():
+        if not isinstance(path_value, str) or not path_value:
+            raise ValueError(f"final-test artifact path is missing: {name}")
+        path = Path(path_value).resolve()
+        if not path.is_relative_to(campaign_root.resolve()) or not path.is_file():
+            raise ValueError(f"final-test artifact is missing or escapes campaign: {name}")
+        if file_sha256(path) != hashes[name]:
+            raise ValueError(f"final-test artifact hash differs: {name}")
 
 
 def _lineage(
@@ -342,6 +365,7 @@ def _score_final_pure_vla(
     source_manifest: dict[str, Any],
     *,
     require_no_promotion: bool = True,
+    verify_artifact_hashes: bool = False,
 ) -> int:
     """Score a terminal no-promotion task from its separate final-test lane."""
 
@@ -416,6 +440,8 @@ def _score_final_pure_vla(
         for path in videos.values():
             _artifact(path, campaign_root=root)
         _artifact(record.artifact_index.get("latency_summary"), campaign_root=root)
+        if verify_artifact_hashes:
+            _verify_trajectory_artifacts(record, campaign_root=root)
         successes += int(record.success is True)
     return successes
 
@@ -424,6 +450,8 @@ def _score_final_harness(
     campaign_root: Path,
     row: dict[str, Any],
     source_manifest: dict[str, Any],
+    *,
+    verify_artifact_hashes: bool = False,
 ) -> int:
     """Score the terminal promoted bundle only from its final-test lane."""
 
@@ -493,6 +521,8 @@ def _score_final_harness(
         for path in videos.values():
             _artifact(path, campaign_root=root)
         _artifact(record.artifact_index.get("latency_summary"), campaign_root=root)
+        if verify_artifact_hashes:
+            _verify_trajectory_artifacts(record, campaign_root=root)
         successes += int(record.success)
     return successes
 
