@@ -1822,3 +1822,14 @@ LIBERO-Pro 套件映射相符，T 为 instruction-redirection，S 为位置交�
 SHA-256 或逐任务开发 seed 列表，故最终数值偏差的原因目前**未证实**；
 不应为了贴近表格改动已冻结的 seed、任务或成功判定。新矩阵继续执行，
 待每任务 50 条开发证据和最终隔离测试齐备后再作同口径判断。
+
+### 长运行的 checkpoint 预检（2026-09-28）
+
+新增只读的 `scripts/evolution/audit_liberopro_runtime_preflight.py`：
+在续跑或重启 runtime 前，校验 v8 `campaign-plan.json`、代码提交、
+runtime URL/配置文件、SFT 模型权重与 LIBERO 归一化统计文件是否仍
+匹配冻结的 `preflight/checkpoint-provenance.json`。当前 v8 实际文件运行
+返回 `status=pass`；覆盖内容漂移与模型路径漂移的定向测试，以及现有
+矩阵/出表测试合计 20 项通过。该检查只证明磁盘文件与配置身份，**不能**
+直接读取正在运行进程的内存权重，仍须保留启动命令、进程及 rollout
+行为证据。它不修改 v8 冻结代码、队列或 episode。
