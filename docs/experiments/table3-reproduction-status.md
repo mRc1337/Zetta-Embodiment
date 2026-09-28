@@ -1372,6 +1372,22 @@ schema 与执行签名一致、候选校验接受该参数。相关 74 项测试
 manifest、候选 bundle 或门禁结果；需要新 lineage 的非计分开发集
 smoke 与正式 gate 才能判断闭合夹爪拉抽屉是否真的有效。
 
+### v6 Goal-T task0 第三轮正式门禁（2026-09-28 02:01 UTC）
+
+第 3 轮 `vla_execute` 重新规划候选
+`a0a2701c20b5d4727b6f3cb0774ef81de8602c94ca6678c1ba94d915e113a192`
+的 50 对均完成：candidate 50/50 有效，logical ID、seed、policy RNG、
+bundle SHA-256 全部与冻结计划一致；50 条 Actor 介入均执行
+`vla_execute`，三路视频和延迟摘要齐全，零新 infra-invalid/401。
+正式 gate 记录 parent 成功 `0/50`、candidate 成功 `1/50`、wins `1`、
+安全事件 `0`、`passed=false`，因未达到 `25/50` 门槛。
+唯一成功仍是 p019/开发种子 24307：该 candidate 在第 78 步重新规划，
+Actor 执行 105 个动作后官方成功；最终底部抽屉关节位置约 `-0.144`，
+目标谓词为 true。该例显示重新规划在一个配对初态可以打开正确抽屉，
+但与第 1 轮同为 p019，未见跨开发种子的稳定覆盖。控制器进入第 4 轮
+`propose`；gate rationale 中“无可归因救援”仍是通用 OR 文案，不能代替
+结构化归因统计。
+
 ### v6 LIBERO-10 (T) task1 的异质失败簇（2026-09-28 01:44 UTC）
 
 该任务 50 条 development baseline 中官方成功 `19/50`。最大视觉失败簇的
