@@ -1640,3 +1640,7 @@ candidate bundle、valid 状态、官方成功布尔值、三路视频与延迟�
 decision（含 ID）与账本相同。合成反例中仅把成功候选的介入证明改为
 false，就会拒绝出表；相关测试增至 12 项通过。该检查仍只是证明
 账本中的介入和配对 gate 有效，不能替代 LIBERO 官方任务成功判定。
+对旧 v3 LIBERO-10-S task2 候选 `76f6e9c0...` 的真实 49 对同种子
+episode 做只读重算，98 条 valid arm 的重算 decision 与账本逐字段一致
+（41/49 candidate 成功、parent 0/49、无安全事件）；这验证审计器可读
+真实 gate 格式，但 v3 逐次 policy RNG 缺陷仍使其不具备正式配对效力。
