@@ -3552,6 +3552,13 @@ TOOLS_SPEC = [
                     "maximum": 8,
                     "description": "Gripper-contact settling steps (default 3).",
                 },
+                "slide_grasp": {
+                    "type": "boolean",
+                    "description": (
+                        "Close the gripper on a slide-joint handle before the "
+                        "bounded pull (default false). Has no effect on hinges."
+                    ),
+                },
             },
             "required": ["entity", "joint", "direction"],
         },

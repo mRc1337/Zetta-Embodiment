@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ from robots.libero.run_evolution_rollout import (
 from robots.libero.tool_catalog import DEFAULT_LIBERO_ROLE1_TOOL_CATALOG
 from robots.libero.tools import (
     LiberoPrimitives,
+    TOOLS_SPEC,
     _owned_rgb_frame,
     _validate_owned_video_frames,
 )
@@ -42,6 +44,7 @@ from robots.robocasa.role1_agent import (
     ToolProposal,
 )
 from zetta.evolution.jsonio import canonical_sha256, read_json
+from zetta.evolution.stages import _validate_recovery_tool_parameters
 from zetta.utils.rpc import RpcError
 from scripts.evolution.prepare_libero_campaign import (
     _load_task_contract,
@@ -974,6 +977,29 @@ def test_semantic_joint_interact_keeps_gripper_open_for_slide_push() -> None:
     assert env.actions
     assert all(float(action[2]) < 0.0 for action in env.actions)
     assert all(float(action[6]) == pytest.approx(-1.0) for action in env.actions)
+
+
+def test_semantic_joint_catalog_exposes_all_executable_parameters() -> None:
+    tool = next(row for row in TOOLS_SPEC if row["name"] == "semantic_joint_interact")
+    properties = tool["input_schema"]["properties"]
+    executable = set(inspect.signature(LiberoPrimitives.semantic_joint_interact).parameters)
+    executable.remove("self")
+
+    assert set(properties) == executable
+    assert properties["slide_grasp"]["type"] == "boolean"
+    candidate = SimpleNamespace(
+        recovery_rules=[
+            SimpleNamespace(
+                steps=[
+                    SimpleNamespace(
+                        tool="semantic_joint_interact",
+                        parameters={"slide_grasp": True},
+                    )
+                ]
+            )
+        ]
+    )
+    _validate_recovery_tool_parameters(candidate, {"tools": TOOLS_SPEC})
 
 
 def test_vla_recovery_tool_yields_after_first_critic_interruption() -> None:
