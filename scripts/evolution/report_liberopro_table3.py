@@ -248,6 +248,7 @@ def _verify_promotion_gates(
         ):
             raise ValueError(f"promotion {kind} gate is missing or inconsistent")
         seen_seeds: set[int] = set()
+        expected: dict[str, tuple[int, int, str]] = {}
         for pair in pairs:
             seed = pair.get("seed")
             if (
@@ -258,6 +259,11 @@ def _verify_promotion_gates(
             ):
                 raise ValueError(f"promotion {kind} gate changed development seeds")
             seen_seeds.add(seed)
+            for arm in ("parent", "candidate"):
+                logical_id = pair.get("logical_ids", {}).get(arm)
+                if not isinstance(logical_id, str) or not logical_id or logical_id in expected:
+                    raise ValueError(f"promotion {kind} gate has duplicate or missing arms")
+                expected[logical_id] = (seed, pair["policy_rng"], arm)
         ordered_seeds = [pair["seed"] for pair in pairs]
         if kind == "same_seed":
             same_seed_schedule = ordered_seeds
@@ -272,6 +278,41 @@ def _verify_promotion_gates(
             or (kind == "regression" and successes != len(pairs))
         ):
             raise ValueError(f"promotion {kind} gate missed the paper threshold")
+        records = _jsonl(
+            state_root / "candidates" / candidate_sha / "gates" / kind / "ledgers/valid.jsonl"
+        )
+        if len(records) != len(expected):
+            raise ValueError(f"promotion {kind} gate lacks complete valid episode evidence")
+        observed: set[str] = set()
+        measured = {"parent": 0, "candidate": 0}
+        for payload in records:
+            record = EpisodeRecord.from_dict(payload)
+            if record.logical_id in observed or record.logical_id not in expected:
+                raise ValueError(f"promotion {kind} gate has duplicate or unknown episodes")
+            observed.add(record.logical_id)
+            seed, policy_rng, arm = expected[record.logical_id]
+            if (
+                record.status != "valid"
+                or type(record.success) is not bool
+                or record.generation != manifest["generation"]
+                or record.seed != seed
+                or record.policy_rng != policy_rng
+                or record.bundle_sha256 != (candidate_sha if arm == "candidate" else parent_sha)
+                or (kind == "same_seed" and arm == "parent" and record.success)
+            ):
+                raise ValueError(f"promotion {kind} episode violates its frozen pair")
+            videos = record.artifact_index.get("videos")
+            if not isinstance(videos, dict) or set(videos) != {"agentview", "wrist", "multiview"}:
+                raise ValueError(f"promotion {kind} episode lacks three-camera video evidence")
+            for path in videos.values():
+                _artifact(path, campaign_root=state_root)
+            _artifact(record.artifact_index.get("latency_summary"), campaign_root=state_root)
+            measured[arm] += int(record.success)
+        if (
+            decision.get("parent_successes") != measured["parent"]
+            or decision.get("candidate_successes") != measured["candidate"]
+        ):
+            raise ValueError(f"promotion {kind} decision contradicts valid episodes")
 
 
 def _score_final_pure_vla(

@@ -29,16 +29,26 @@ def _write_promotion_evidence(
     decisions = [json.loads(line) for line in gates_path.read_text().splitlines()]
     assert len(decisions) == 1 and decisions[0]["kind"] == "heldout_20"
     decisions[0]["decision_id"] = f"gate-{candidate[:8]}-heldout"
+    video = state_root / "evidence.mp4"
+    latency = state_root / "latency.json"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"video")
+    latency.write_bytes(b"{}")
     for kind in ("same_seed", "regression"):
         pairs = [
             {
                 "seed": seed,
                 "policy_rng": manifest["policy_rng_by_seed"][str(seed)],
+                "logical_ids": {
+                    arm: f"{kind}-{candidate[:8]}-{seed}-{arm}"
+                    for arm in ("parent", "candidate")
+                },
             }
             for seed in manifest["rollout_seeds"][:2]
         ]
+        gate_root = state_root / "candidates" / candidate / "gates" / kind
         _write_json(
-            state_root / "candidates" / candidate / "gates" / kind / "plan.json",
+            gate_root / "plan.json",
             {
                 "kind": kind,
                 "candidate_sha256": candidate,
@@ -47,12 +57,42 @@ def _write_promotion_evidence(
                 "pairs": pairs,
             },
         )
+        records = []
+        for pair in pairs:
+            for arm, logical_id in pair["logical_ids"].items():
+                records.append({
+                    "episode_id": logical_id,
+                    "logical_id": logical_id,
+                    "generation": manifest["generation"],
+                    "seed": pair["seed"],
+                    "policy_rng": pair["policy_rng"],
+                    "bundle_sha256": candidate if arm == "candidate" else parent,
+                    "status": "valid",
+                    "success": arm == "candidate",
+                    "started_at": "2026-09-27T00:00:00Z",
+                    "finished_at": "2026-09-27T00:01:00Z",
+                    "elapsed_s": 60.0,
+                    "artifact_index": {
+                        "videos": {
+                            camera: str(video)
+                            for camera in ("agentview", "wrist", "multiview")
+                        },
+                        "latency_summary": str(latency),
+                    },
+                })
+        valid = gate_root / "ledgers/valid.jsonl"
+        valid.parent.mkdir(parents=True, exist_ok=True)
+        valid.write_text(
+            "".join(json.dumps(record) + "\n" for record in records),
+            encoding="utf-8",
+        )
         decisions.append({
             "decision_id": f"gate-{candidate[:8]}-{kind}",
             "kind": kind,
             "candidate_sha256": candidate,
             "parent_sha256": parent,
             "paired_count": len(pairs),
+            "parent_successes": 0,
             "candidate_successes": len(pairs),
             "candidate_safety_events": 0,
             "passed": True,
@@ -245,6 +285,29 @@ def test_report_rejects_promotion_without_paper_development_gates(tmp_path: Path
     promotion["gate_decision_ids"] = []
     promotions.write_text(json.dumps(promotion) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="does not bind its gate decisions"):
+        _score_task(campaign, row, COMMIT)
+
+
+def test_report_recounts_development_gate_episodes(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    ledger = (
+        campaign / "state/candidates" / CANDIDATE
+        / "gates/same_seed/ledgers/valid.jsonl"
+    )
+    records = [json.loads(line) for line in ledger.read_text().splitlines()]
+    records[1]["success"] = False
+    ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="decision contradicts valid episodes"):
+        _score_task(campaign, row, COMMIT)
+
+    ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in records[:-1]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="lacks complete valid episode evidence"):
         _score_task(campaign, row, COMMIT)
 
 
