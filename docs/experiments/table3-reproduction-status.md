@@ -50,6 +50,11 @@ LIBERO-10-T 与论文测试集 50% 的差异需持续监控。已核对当前推
 `zetta_libero_pi05.yaml` 逐字段一致；checkpoint 文件哈希也通过
 v9 preflight。论文没有公开其精确权重 SHA，因此这只能排除已知
 配置错配，不能证明本地权重等同于论文实验权重。
+之后原调度器进程退出，但三条 worker 与 runtime 持续健康，队列结果
+没有丢失；恢复前单轮 `--once` 扫描 40 个 campaign 返回 0 errors，
+已把积压完成记录入账。随后以同一冻结 worktree/计划重新启动调度器，
+输出写入 `/tmp/zetta-table3/v9-controller.log` 便于追踪。此操作没有
+重新生成 seed、重跑有效 episode 或触碰测试集。
 
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
