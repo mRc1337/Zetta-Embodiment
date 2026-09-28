@@ -1787,3 +1787,13 @@ LIBERO-10-S/task0、development seed 63675、policy RNG 1327407294 的
 GPU3 worker 继续收集开发基线；累计 10 条均为 `valid`、0 条
 `infra_invalid`、0 条队列失败后扩为三名 worker。单条结果不能估计 task 成功率，
 且当前没有新 SFT 权重下的 recovery 效果或 Table 3 总表。
+
+对新旧矩阵重合的前 17 条 development episode 做只读配对核验：
+17/17 的 seed、policy RNG 和初始观测身份一致，17/17 的动作文件哈希
+不同。首条 LIBERO-10-S/task0 的 10 个 warm-up 动作相同，首次分叉在
+step 11（第一个 policy 动作），符合权重改变而环境 reset 未改变的预期。
+这不能把两批结果相加，也不能单独证明最终成功率会提高。对新矩阵
+这 17 条结果的 119 个轨迹/视频 artifact 逐一重算 SHA-256，均与
+EpisodeRecord 中的索引一致；此前 16 条完成记录还核对了开发 seed、
+逐 seed policy RNG、空 bundle、无 recovery 介入、官方 horizon、三路
+视频和延迟文件，问题为 0。
