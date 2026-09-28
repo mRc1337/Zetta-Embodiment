@@ -76,9 +76,35 @@ v9 preflight。论文没有公开其精确权重 SHA，因此这只能排除已�
 缓存（revision `6222623f635769bfc73c9472e29fab9b7fd8e027`，模型 SHA-256
 `4d9089c941793f170b625c2ed0ac7a3aa09b6f103e52dbbc82e67301529d6683`）；
 它与 v9 模型的 812 个 tensor 键和形状一致，norm stats 哈希相同，但
-模型文件哈希不同。论文没有指认这份权重，尚未做隔离的同开发 seed
-对照，不能据此认定它是论文权重或修复了基线偏差。v9 的 checkpoint、
-队列和运行服务均未切换。
+模型文件哈希不同。论文没有指认这份权重，不能仅凭名称认定它是论文权重。
+
+### 同开发 seed 权重对照（诊断，非 Table 3 计分）
+
+v9 在 181 个有效开发集 episode、0 queue failed 后安全停靠：1819 个
+pending 作业保留于 `queue/pending/paused_checkpoint_probe`，3 个在途作业
+自然完成后才停止 worker/runtime。随后只在 GPU3 用独立 runtime 端口
+`18732` 加载 fullshot 权重，复用冻结 v9 的 rollout 命令；除输出路径、
+logical ID、runtime URL 外，task、seed、policy RNG、horizon、动作块、
+BDDL 指令和空 bundle 均保持一致。7/7 对照的初始机器人状态与双相机
+观测哈希逐项相同，均为 `valid`；8 条探针（含下述 SFT 控制）共 56 个
+轨迹/视频文件哈希复核 0 不匹配，测试 seed 1--20 未触碰。
+
+| setting/task | 开发 seed | v9 SFT | fullshot |
+|---|---:|---|---|
+| Goal-T/task4 | 41408 | 失败 | 成功 |
+| Goal-T/task1 | 1749 | 失败 | 成功 |
+| Goal-T/task4 | 74287 | 失败 | 成功 |
+| LIBERO-10-T/task1 | 67690 | 失败 | 成功 |
+| LIBERO-10-T/task1 | 84752 | 失败 | 成功 |
+| LIBERO-10-T/task2 | 60900 | 失败 | 成功 |
+| LIBERO-10-T/task5 | 52808 | 失败 | 失败 |
+
+再以与 fullshot 探针**相同**的单会话 runtime 配置，仅换回原 SFT
+权重，复跑 Goal-T/task4 seed 41408：`valid` 失败；三条记录（v9、
+fullshot、SFT 控制）的 seed/RNG 和初始观测哈希均相同。由此权重差异
+是基线偏差的强候选原因，而非仅由探针并发度不同造成。不过这 7 条
+是从已知 SFT 失败中诊断性选择，6/7 不是无偏成功率估计；论文权重
+身份仍未确认。探针已退出，v9 数据原样保留且未混入 fullshot 结果。
 
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
