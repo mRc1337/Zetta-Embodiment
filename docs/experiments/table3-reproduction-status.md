@@ -1598,3 +1598,10 @@ attempt（p037--p040）已各有原 seed、policy RNG、bundle 不变的 attempt
 旧 v6 的四个 inconclusive 诊断本身分别指出混合故障表型或尚未区分的
 命令/控制成因；后续必须进一步拆分/验证原因和构造候选，而不能通过
 降低 same-seed 或 regression 门限来“补齐”成绩。
+
+出表器还对每次 promotion 增加独立、只读的证据绑定：promotion 的候选、
+parent、generation 和 gate decision IDs 必须一致；同种子 gate 的冻结
+开发 seed/RNG、候选成功数至少 50%，目标簇历史回归成功数 100%，且
+固定 20-seed held-out gate 均须存在。测试模式下 held-out 结果只用于
+报告，不要求其 `passed=true` 才允许晋级；这避免使用留出集选择候选。
+测试覆盖缺失门限、回归失败和 promotion ID 漂移，相关测试共 10 项通过。

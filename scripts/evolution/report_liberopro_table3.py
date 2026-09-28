@@ -194,6 +194,86 @@ def _score_gate(
     return successes
 
 
+def _verify_promotion_gates(
+    state_root: Path,
+    manifest: dict[str, Any],
+    candidate_sha: str,
+    parent_sha: str | None,
+) -> None:
+    """Bind a promotion to passed development gates and the fixed final test."""
+
+    promotions = _jsonl(state_root / "ledgers/promotions.jsonl")
+    if len(promotions) != 1:
+        raise ValueError("generation lacks a unique promotion record")
+    promotion = promotions[0]
+    if (
+        promotion.get("candidate_sha256") != candidate_sha
+        or promotion.get("parent_sha256") != parent_sha
+        or promotion.get("generation") != manifest["generation"]
+    ):
+        raise ValueError("promotion candidate, parent, or generation differs")
+    decisions = [
+        row
+        for row in _jsonl(state_root / "ledgers/gates.jsonl")
+        if row.get("candidate_sha256") == candidate_sha
+    ]
+    by_kind = {row.get("kind"): row for row in decisions}
+    if len(by_kind) != len(decisions) or set(by_kind) != {
+        "same_seed", "regression", "heldout_20"
+    }:
+        raise ValueError("promotion lacks unique same-seed, regression, or held-out gates")
+    ids = [row.get("decision_id") for row in decisions]
+    if (
+        any(not isinstance(value, str) or not value for value in ids)
+        or promotion.get("gate_decision_ids") != sorted(ids)
+    ):
+        raise ValueError("promotion does not bind its gate decisions")
+    development = set(manifest["rollout_seeds"])
+    same_seed_schedule: list[int] | None = None
+    for kind in ("same_seed", "regression"):
+        decision = by_kind[kind]
+        plan = read_json(state_root / "candidates" / candidate_sha / "gates" / kind / "plan.json")
+        pairs = plan.get("pairs")
+        if (
+            plan.get("kind") != kind
+            or plan.get("candidate_sha256") != candidate_sha
+            or plan.get("parent_sha256") != parent_sha
+            or plan.get("manifest_sha256") != canonical_sha256(manifest)
+            or not isinstance(pairs, list)
+            or not pairs
+            or decision.get("paired_count") != len(pairs)
+            or decision.get("passed") is not True
+            or decision.get("parent_sha256") != parent_sha
+            or decision.get("candidate_safety_events") != 0
+        ):
+            raise ValueError(f"promotion {kind} gate is missing or inconsistent")
+        seen_seeds: set[int] = set()
+        for pair in pairs:
+            seed = pair.get("seed")
+            if (
+                not isinstance(seed, int)
+                or seed not in development
+                or seed in seen_seeds
+                or pair.get("policy_rng") != manifest["policy_rng_by_seed"][str(seed)]
+            ):
+                raise ValueError(f"promotion {kind} gate changed development seeds")
+            seen_seeds.add(seed)
+        ordered_seeds = [pair["seed"] for pair in pairs]
+        if kind == "same_seed":
+            same_seed_schedule = ordered_seeds
+        elif ordered_seeds != same_seed_schedule:
+            raise ValueError("regression gate changed the originating failure cluster")
+        successes = decision.get("candidate_successes")
+        if (
+            not isinstance(successes, int)
+            or successes < 0
+            or successes > len(pairs)
+            or (kind == "same_seed" and successes * 2 < len(pairs))
+            or (kind == "regression" and successes != len(pairs))
+        ):
+            raise ValueError(f"promotion {kind} gate missed the paper threshold")
+
+
 def _score_final_pure_vla(
     campaign_root: Path, row: dict[str, Any], source_manifest: dict[str, Any]
 ) -> int:
@@ -358,9 +438,7 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
             and state.get("current_bundle_sha256") == gates[0].parents[2].name
         ):
             candidate_sha = state["current_bundle_sha256"]
-            promotions = _jsonl(nodes[0][0] / "ledgers/promotions.jsonl")
-            if len(promotions) != 1 or promotions[0].get("candidate_sha256") != candidate_sha:
-                raise ValueError("terminal candidate lacks a promotion record")
+            _verify_promotion_gates(nodes[0][0], manifest, candidate_sha, None)
             measured = _score_gate(campaign_root, nodes[0][0], manifest, candidate_sha, None)
             baseline_successes = measured["parent"]
             zetta_successes = measured["candidate"]
@@ -369,6 +447,14 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
         final_generation = 0
     else:
         first_handoff = read_json(nodes[0][0] / "analysis/generation-continuation.json")
+        for source_root, source_manifest in nodes[:-1]:
+            handoff = read_json(source_root / "analysis/generation-continuation.json")
+            _verify_promotion_gates(
+                source_root,
+                source_manifest,
+                handoff["promoted_bundle_sha256"],
+                source_manifest.get("active_bundle_sha256"),
+            )
         baseline = _score_gate(
             campaign_root,
             nodes[0][0],

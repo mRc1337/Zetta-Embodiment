@@ -22,6 +22,55 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_promotion_evidence(
+    state_root: Path, manifest: dict, candidate: str, parent: str | None
+) -> None:
+    gates_path = state_root / "ledgers/gates.jsonl"
+    decisions = [json.loads(line) for line in gates_path.read_text().splitlines()]
+    assert len(decisions) == 1 and decisions[0]["kind"] == "heldout_20"
+    decisions[0]["decision_id"] = f"gate-{candidate[:8]}-heldout"
+    for kind in ("same_seed", "regression"):
+        pairs = [
+            {
+                "seed": seed,
+                "policy_rng": manifest["policy_rng_by_seed"][str(seed)],
+            }
+            for seed in manifest["rollout_seeds"][:2]
+        ]
+        _write_json(
+            state_root / "candidates" / candidate / "gates" / kind / "plan.json",
+            {
+                "kind": kind,
+                "candidate_sha256": candidate,
+                "parent_sha256": parent,
+                "manifest_sha256": canonical_sha256(manifest),
+                "pairs": pairs,
+            },
+        )
+        decisions.append({
+            "decision_id": f"gate-{candidate[:8]}-{kind}",
+            "kind": kind,
+            "candidate_sha256": candidate,
+            "parent_sha256": parent,
+            "paired_count": len(pairs),
+            "candidate_successes": len(pairs),
+            "candidate_safety_events": 0,
+            "passed": True,
+        })
+    gates_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in decisions), encoding="utf-8"
+    )
+    promotion = {
+        "candidate_sha256": candidate,
+        "parent_sha256": parent,
+        "generation": manifest["generation"],
+        "gate_decision_ids": sorted(row["decision_id"] for row in decisions),
+    }
+    (state_root / "ledgers/promotions.jsonl").write_text(
+        json.dumps(promotion) + "\n", encoding="utf-8"
+    )
+
+
 def _completed_task(root: Path, suite: str, task_id: int) -> dict:
     campaign = root / "campaigns" / suite / f"task-{task_id:02d}"
     task = f"{suite}/task{task_id}"
@@ -107,8 +156,7 @@ def _completed_task(root: Path, suite: str, task_id: int) -> dict:
         "parent_successes": 4,
         "candidate_successes": 10,
     }) + "\n", encoding="utf-8")
-    promotions = campaign / "state/ledgers/promotions.jsonl"
-    promotions.write_text(json.dumps({"candidate_sha256": CANDIDATE}) + "\n", encoding="utf-8")
+    _write_promotion_evidence(campaign / "state", manifest, CANDIDATE, None)
     return {
         "suite": suite,
         "task_id": task_id,
@@ -158,6 +206,45 @@ def test_report_rejects_missing_or_drifted_development_baseline(tmp_path: Path) 
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="frozen pure-VLA schedule"):
+        _score_task(campaign, row, COMMIT)
+
+
+def test_report_rejects_promotion_without_paper_development_gates(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    gates = campaign / "state/ledgers/gates.jsonl"
+    decisions = [json.loads(line) for line in gates.read_text().splitlines()]
+    same_seed = next(row for row in decisions if row["kind"] == "same_seed")
+    same_seed["candidate_successes"] = 0
+    gates.write_text("".join(json.dumps(row) + "\n" for row in decisions), encoding="utf-8")
+    with pytest.raises(ValueError, match="same_seed gate missed the paper threshold"):
+        _score_task(campaign, row, COMMIT)
+
+    same_seed["candidate_successes"] = 2
+    regression = next(row for row in decisions if row["kind"] == "regression")
+    regression["candidate_successes"] = 1
+    gates.write_text("".join(json.dumps(row) + "\n" for row in decisions), encoding="utf-8")
+    with pytest.raises(ValueError, match="regression gate missed the paper threshold"):
+        _score_task(campaign, row, COMMIT)
+
+    regression["candidate_successes"] = 2
+    gates.write_text("".join(json.dumps(row) + "\n" for row in decisions), encoding="utf-8")
+    regression_plan = campaign / "state/candidates" / CANDIDATE / "gates/regression/plan.json"
+    plan = json.loads(regression_plan.read_text())
+    new_seed = row["development_seeds"][2]
+    plan["pairs"][1]["seed"] = new_seed
+    plan["pairs"][1]["policy_rng"] = new_seed + 1000
+    _write_json(regression_plan, plan)
+    with pytest.raises(ValueError, match="originating failure cluster"):
+        _score_task(campaign, row, COMMIT)
+    plan["pairs"][1]["seed"] = row["development_seeds"][1]
+    plan["pairs"][1]["policy_rng"] = row["development_seeds"][1] + 1000
+    _write_json(regression_plan, plan)
+    promotions = campaign / "state/ledgers/promotions.jsonl"
+    promotion = json.loads(promotions.read_text())
+    promotion["gate_decision_ids"] = []
+    promotions.write_text(json.dumps(promotion) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="does not bind its gate decisions"):
         _score_task(campaign, row, COMMIT)
 
 
@@ -271,6 +358,7 @@ def test_report_uses_last_gate_after_two_promotions(tmp_path: Path) -> None:
         "parent_successes": 10,
         "candidate_successes": 15,
     }) + "\n", encoding="utf-8")
+    _write_promotion_evidence(g1, g1_manifest, final_candidate, CANDIDATE)
     g2 = g1 / "children/generation-0002"
     g2_manifest = {
         **g1_manifest,
