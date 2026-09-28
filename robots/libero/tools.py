@@ -1825,6 +1825,7 @@ class LiberoPrimitives:
         direction_reversals = 0
         direct_contact_steps = 0
         recontacted = False
+        blocked_by: list[str] = []
         target_qpos = (
             float(start["range_lower"])
             if direction == "lower"
@@ -1843,6 +1844,48 @@ class LiberoPrimitives:
 
         desired_velocity_sign = -1.0 if direction == "lower" else 1.0
 
+        def non_target_obstacles() -> list[str]:
+            """Stop a slide pull when its force is borne by unrelated objects."""
+
+            if not (slide_joint and slide_grasp):
+                return []
+            try:
+                snapshot = self.env.privileged_contacts(max_contacts=64)
+            except Exception:
+                return ["contact_evidence_unavailable"]
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("available") is not True
+                or snapshot.get("truncated") is True
+                or (
+                    int(snapshot.get("robot_contact_count", 0)) > 0
+                    and snapshot.get("force_available") is not True
+                )
+            ):
+                return ["contact_evidence_unavailable"]
+            entity_parts = entity.rsplit("_", 1)
+            fixture_prefix = (
+                entity_parts[0]
+                if len(entity_parts) == 2 and entity_parts[1].isdigit()
+                else entity
+            )
+            obstacles: set[str] = set()
+            for item in snapshot.get("contacts", []):
+                if (
+                    not isinstance(item, dict)
+                    or not item.get("involves_robot")
+                    or item.get("robot_self_contact")
+                ):
+                    continue
+                force = item.get("normal_force_n")
+                if not isinstance(force, (int, float)) or float(force) < 2.0:
+                    continue
+                other = item.get("geom2") if item.get("geom1_robot") else item.get("geom1")
+                name = str(other or "")
+                if name and not name.casefold().startswith(fixture_prefix.casefold()):
+                    obstacles.add(name)
+            return sorted(obstacles)
+
         # Keep the reachability mode stable for the entire primitive.  A
         # short correction can cross the 4 cm boundary during the direct
         # contact budget; reclassifying it in the continuation sweep rotates
@@ -1855,7 +1898,7 @@ class LiberoPrimitives:
         def sweep(*, budget: int) -> tuple[bool, bool, int]:
             """Sweep from the current contact and report realized response."""
 
-            nonlocal direction_reversals, sweep_steps
+            nonlocal blocked_by, direction_reversals, sweep_steps
             direction_sign = 1.0
             # Contact geometry can change as the EEF moves around a fixture,
             # which may flip the realized tangent direction mid-sweep.  Use a
@@ -1913,6 +1956,9 @@ class LiberoPrimitives:
                 window_steps += 1
                 if sweep_steps % 8 == 0:
                     capture_contact(f"sweep-{sweep_steps}")
+                blocked_by = non_target_obstacles()
+                if blocked_by:
+                    break
                 if terminal():
                     break
                 after = plan()
@@ -2003,22 +2049,39 @@ class LiberoPrimitives:
                 capture_contact("after-approach")
             if not terminal():
                 current = plan()
-                self.move_pose(
-                    list(current["press_position_world"]),
-                    # Keep a slide-handle grasp closed through contact.  The
-                    # previous open command undid the close-on-approach just
-                    # before the tangent sweep tried to pull the drawer.
-                    gripper=1.0 if (slide_joint and slide_grasp) else -1.0,
-                    step_clip=0.012,
-                    tol=0.005,
-                    # In the Pro cabinet the OSC controller realizes only
-                    # about 3 mm of downward travel per command.  The old
-                    # 32-step cap left the EEF ~10 cm above the handle, so
-                    # the subsequent tangent sweep hit tabletop objects.
-                    max_steps=80 if (slide_joint and slide_grasp) else 32,
-                )
+                press_target = list(current["press_position_world"])
+                if slide_joint and slide_grasp:
+                    # OSC realizes only a few millimetres per command here.
+                    # Re-observe in eight-step segments: a single long servo
+                    # drove into the table's plate before reaching the handle.
+                    for segment in range(10):
+                        motion = self.move_pose(
+                            press_target,
+                            gripper=1.0,
+                            step_clip=0.012,
+                            tol=0.005,
+                            max_steps=8,
+                        )
+                        capture_contact(f"press-{segment + 1}")
+                        blocked_by = non_target_obstacles()
+                        if (
+                            blocked_by
+                            or terminal()
+                            or float(motion["final_dist_m"]) <= 0.005
+                        ):
+                            break
+                else:
+                    self.move_pose(
+                        press_target,
+                        gripper=-1.0,
+                        step_clip=0.012,
+                        tol=0.005,
+                        max_steps=32,
+                    )
                 capture_contact("after-press")
-            if not terminal():
+                if not blocked_by:
+                    blocked_by = non_target_obstacles()
+            if not terminal() and not blocked_by:
                 for _ in range(close_steps):
                     action = np.zeros(7, dtype=np.float32)
                     action[6] = 1.0 if (slide_joint and slide_grasp) else (-1.0 if slide_joint else 1.0)
@@ -2026,7 +2089,7 @@ class LiberoPrimitives:
                     if terminal():
                         break
 
-        if not satisfied and not terminal():
+        if not satisfied and not terminal() and not blocked_by:
             remaining = max_sweep_steps - direct_contact_steps
             satisfied, _, _ = sweep(budget=remaining)
 
@@ -2048,6 +2111,8 @@ class LiberoPrimitives:
             "steps_used": int(self.env.episode_steps) - actions_before,
             "interrupted_by_critic": self.critic_interrupted(),
             "libero_terminated": self.env.episode_terminated,
+            "status": "blocked_by_non_target_contact" if blocked_by else "executed",
+            "blocked_by": blocked_by,
         }
         if diagnostic_trace is not None:
             result["non_scored_contact_trace"] = diagnostic_trace

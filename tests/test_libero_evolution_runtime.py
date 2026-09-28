@@ -981,6 +981,12 @@ def test_semantic_joint_interact_keeps_gripper_open_for_slide_push() -> None:
 
 def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
     env = _SemanticSlideActionTraceEnv()
+    env.privileged_contacts = lambda **_kwargs: {  # type: ignore[attr-defined]
+        "available": True,
+        "truncated": False,
+        "robot_contact_count": 0,
+        "contacts": [],
+    }
     primitives = LiberoPrimitives(
         env, _PrimitiveModel(), object(), allow_privileged_actions=True
     )  # type: ignore[arg-type]
@@ -991,7 +997,7 @@ def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
     def record_move_pose(_position: list[float], **kwargs: Any) -> dict[str, Any]:
         move_grippers.append(float(kwargs["gripper"]))
         move_budgets.append(int(kwargs["max_steps"]))
-        return {"status": "recorded"}
+        return {"status": "recorded", "final_dist_m": 1.0}
 
     primitives.move_pose = record_move_pose  # type: ignore[method-assign]
     result = primitives.semantic_joint_interact(
@@ -1000,9 +1006,59 @@ def test_semantic_joint_interact_keeps_slide_grasp_closed_at_press() -> None:
 
     assert result["recontacted"] is True
     assert result["direct_contact_steps"] == 0
-    assert move_grippers == [-1.0, 1.0, 1.0]
-    assert move_budgets == [36, 40, 80]
+    assert move_grippers == [-1.0, 1.0] + [1.0] * 10
+    assert move_budgets == [36, 40] + [8] * 10
     assert all(float(action[6]) == pytest.approx(1.0) for action in env.actions)
+
+
+def test_semantic_slide_grasp_stops_on_non_target_contact() -> None:
+    env = _SemanticSlideActionTraceEnv()
+    env.privileged_contacts = lambda **_kwargs: {  # type: ignore[attr-defined]
+        "available": True,
+        "truncated": False,
+        "robot_contact_count": 1,
+        "force_available": True,
+        "contacts": [
+            {
+                "involves_robot": True,
+                "robot_self_contact": False,
+                "geom1_robot": False,
+                "geom1": "plate_1_g9",
+                "geom2": "gripper0_finger1_collision",
+                "normal_force_n": 5.0,
+            }
+        ],
+    }
+    primitives = LiberoPrimitives(
+        env, _PrimitiveModel(), object(), allow_privileged_actions=True
+    )  # type: ignore[arg-type]
+    primitives.set_obs(env._obs())
+    primitives.move_pose = lambda *_args, **_kwargs: {"status": "recorded", "final_dist_m": 1.0}  # type: ignore[method-assign]
+
+    result = primitives.semantic_joint_interact(
+        "wooden_cabinet_1", "bottom_level", direction="lower", slide_grasp=True
+    )
+
+    assert result["status"] == "blocked_by_non_target_contact"
+    assert result["blocked_by"] == ["plate_1_g9"]
+    assert result["sweep_steps"] == 0
+
+
+def test_semantic_slide_grasp_requires_contact_evidence() -> None:
+    env = _SemanticSlideActionTraceEnv()
+    primitives = LiberoPrimitives(
+        env, _PrimitiveModel(), object(), allow_privileged_actions=True
+    )  # type: ignore[arg-type]
+    primitives.set_obs(env._obs())
+    primitives.move_pose = lambda *_args, **_kwargs: {"final_dist_m": 1.0}  # type: ignore[method-assign]
+
+    result = primitives.semantic_joint_interact(
+        "wooden_cabinet_1", "bottom_level", direction="lower", slide_grasp=True
+    )
+
+    assert result["status"] == "blocked_by_non_target_contact"
+    assert result["blocked_by"] == ["contact_evidence_unavailable"]
+    assert result["sweep_steps"] == 0
 
 
 def test_semantic_joint_catalog_exposes_all_executable_parameters() -> None:
