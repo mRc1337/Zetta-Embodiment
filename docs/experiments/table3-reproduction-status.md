@@ -1546,3 +1546,12 @@ v6 队列长期无 `pending` / `running`，其剩余一个 worker 也确认无�
 `failed=0`；59 条 completed 均 `valid`。GPU3 约 14/24 GiB，
 runtime health `status=ok`、`heartbeat_failed=0`。若 v6 控制器后续
 产生新队列任务，它们会等待 worker，不会自动并发抢占 v7 槽位。
+
+新增只读审计脚本 `scripts/experiments/audit_liberopro_baseline.py`：对每条
+generation-0 completed 基线逐项比对冻结 manifest / matrix 的任务、开发
+seed、逐 seed RNG、代码运行路径、`strict_pure_vla` / 无 bundle、官方
+horizon、官方成功布尔值、三路非空视频与延迟摘要，并检测同任务同 seed
+重复证据及路径逃逸。默认输出阶段报告；`--require-complete` 在未凑齐
+40×50 条时返回非零。3 项合成回归测试通过；在实时 v7 队列上检查前
+`80/2000` 条 completed，`80/80` 证据有效、覆盖 40 个任务、问题 0，
+`complete=false`。该审计器只读，不会把开发基线当成最终 Table 3 结果。
