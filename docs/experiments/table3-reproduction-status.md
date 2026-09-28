@@ -1663,7 +1663,13 @@ gate decision、regression、promotion 或 held-out 结果。
 只读 shadow replay 对全部 50 条目标失败轨迹显示 33 条在该窗口触发，
 17 条未触发；因无已知轨迹分叉点和成功对照，预检结论是
 `inconclusive_without_success_control_online_gate_required`，不能解释为
-33 条正确捕获第二次放置。额外按基线 `trajectory/actions.jsonl` 的夹爪
+33 条正确捕获第二次放置。逐条核对 `trajectory/states.jsonl` 后发现，
+这 33 条的首次命中均在 step 178，且该步未采到
+`privileged.task.stage.index` 或 `manipulated_object.retained`，所以触发时
+并无“已到第二次放置、目标物仍被持握”的机制证据。相反，50 条中只有
+9 条在某个采样步同时满足阶段 1、retained=true、张开命令；这一数字
+只是稀疏状态采样的可观察命中数，不能当作真正释放事件的完整召回率。
+额外按基线 `trajectory/actions.jsonl` 的夹爪
 开/闭状态逐条核对，50 条中没有一条由闭到开的转换发生于 step
 178--207。典型 rollout-030 的两次张开约在 step 105、233，rollout-044
 约在 step 95、215、226；因此此候选当前规则很可能在第一轮松手后仍
