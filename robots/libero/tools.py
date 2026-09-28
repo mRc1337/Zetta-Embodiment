@@ -1877,12 +1877,14 @@ class LiberoPrimitives:
                     or item.get("robot_self_contact")
                 ):
                     continue
-                force = item.get("normal_force_n")
-                if not isinstance(force, (int, float)) or float(force) < 2.0:
-                    continue
                 other = item.get("geom2") if item.get("geom1_robot") else item.get("geom1")
                 name = str(other or "")
-                if name and not name.casefold().startswith(fixture_prefix.casefold()):
+                if not name or name.casefold().startswith(fixture_prefix.casefold()):
+                    continue
+                force = item.get("normal_force_n")
+                if not isinstance(force, (int, float)):
+                    return ["contact_evidence_unavailable"]
+                if float(force) >= 2.0:
                     obstacles.add(name)
             return sorted(obstacles)
 

@@ -1061,6 +1061,53 @@ def test_semantic_slide_grasp_requires_contact_evidence() -> None:
     assert result["sweep_steps"] == 0
 
 
+def test_semantic_slide_grasp_checks_between_press_segments() -> None:
+    env = _SemanticSlideActionTraceEnv()
+    inspections = 0
+    press_calls = 0
+
+    def contacts(**_kwargs: Any) -> dict[str, Any]:
+        nonlocal inspections
+        inspections += 1
+        blocked = inspections >= 3
+        return {
+            "available": True,
+            "truncated": False,
+            "robot_contact_count": int(blocked),
+            "force_available": blocked,
+            "contacts": [
+                {
+                    "involves_robot": True,
+                    "robot_self_contact": False,
+                    "geom1_robot": False,
+                    "geom1": "plate_1_g9",
+                    "geom2": "gripper0_finger1_collision",
+                    "normal_force_n": 5.0,
+                }
+            ] if blocked else [],
+        }
+
+    env.privileged_contacts = contacts  # type: ignore[attr-defined]
+    primitives = LiberoPrimitives(
+        env, _PrimitiveModel(), object(), allow_privileged_actions=True
+    )  # type: ignore[arg-type]
+    primitives.set_obs(env._obs())
+
+    def move_pose(_position: list[float], **kwargs: Any) -> dict[str, Any]:
+        nonlocal press_calls
+        press_calls += int(kwargs["max_steps"] == 8)
+        return {"final_dist_m": 1.0}
+
+    primitives.move_pose = move_pose  # type: ignore[method-assign]
+    result = primitives.semantic_joint_interact(
+        "wooden_cabinet_1", "bottom_level", direction="lower", slide_grasp=True
+    )
+
+    assert press_calls == 3
+    assert result["blocked_by"] == ["plate_1_g9"]
+    assert result["sweep_steps"] == 0
+
+
 def test_semantic_joint_catalog_exposes_all_executable_parameters() -> None:
     tool = next(row for row in TOOLS_SPEC if row["name"] == "semantic_joint_interact")
     properties = tool["input_schema"]["properties"]
