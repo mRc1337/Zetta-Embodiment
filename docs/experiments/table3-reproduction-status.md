@@ -8,6 +8,16 @@
 
 **2026-09-28 重要更正：下文 v2--v7 的 rollout 使用了从 OpenPI JAX `pi05_libero` 转换的 PyTorch checkpoint，而非公开部署预设指向的 [`RLinf/RLinf-Pi05-LIBERO-SFT`](https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-SFT)。因此下文将 v6/v7 称作“正式矩阵”的历史描述只表示当时冻结了 seed/代码/协议，不表示权重符合目标设定；其 success、gate 和 recovery 结果均降级为错误权重下的探索/诊断证据，不得并入 Table 3。旧 v7 在 427 条已完成、0 条 running 时安全停机，1573 条 pending 原样保存于 `queue/pending/paused_wrong_checkpoint`。必须用正确 SFT 权重从头重跑全部计分 episode。**
 
+**2026-09-28 方法学修正（进行中）：**论文 §4.1 明确要求 LIBERO-Pro
+seed 1--20 只在演化完成后做最终测试。此前实现虽不依据测试结果选择候选，
+却在每次通过开发 gate 后、晋级前运行相同的 20 个测试 seed；这不符合
+“整个演化过程未见测试集”的要求。已停止 v8 的旧版演化调度器，保留三条
+worker 继续完成已排队的 2000 条开发基线；目前无测试 seed 入队。
+源码已改为 `heldout_mode=test` 在开发 gate 通过后直接晋级，且晋级时
+拒绝存在中途 held-out gate 的候选。独立的演化结束后最终测试/出表路径
+尚待接入并验证，因此 v8 基线只能暂作探索证据，不能据此宣称正式
+Table 3 已复现；后续应由修正后的冻结代码重新启动正式矩阵。
+
 ## 早期单 episode artifact（错误权重下的探索证据）
 
 仓库内提交的早期演示只有少量单 episode 结果；本地 `.local-repro/` 的历史 v6 矩阵进度见文末，不应与下表混合计分：

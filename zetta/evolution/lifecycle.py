@@ -5332,13 +5332,32 @@ def record_gate_and_advance(
     *, campaign_root: str | Path, decision: GateDecision
 ) -> dict[str, Any]:
     store = CampaignStore(campaign_root)
-    store.record_gate(decision)
     policy = _evolution_policy(store)
+    if (
+        policy["heldout_mode"] == "test"
+        and decision.kind in {"heldout_10", "heldout_20", "heldout_50"}
+    ):
+        raise ValueError("final test seeds cannot be gated during evolution")
+    store.record_gate(decision)
+    after_development = (
+        CampaignPhase.PROMOTE
+        if policy["heldout_mode"] == "test"
+        else CampaignPhase.HELDOUT_GATE
+    )
     state = store.state()
     if decision.kind == "same_seed":
         if decision.passed:
             authorization = _load_provisional_authorization(store)
             if authorization is not None and authorization["skip_regression"]:
+                if after_development == CampaignPhase.PROMOTE:
+                    return store.transition(
+                        CampaignPhase.PROMOTE,
+                        state_updates={
+                            "optimization_outcome": (
+                                "same_seed_passed_regression_skipped_timeboxed"
+                            )
+                        },
+                    )
                 return store.transition_timeboxed_same_seed_to_heldout(
                     authorization_id=str(authorization["authorization_id"]),
                     authorization_sha256=str(
@@ -5353,7 +5372,7 @@ def record_gate_and_advance(
                 and bool(threshold_authorization.get("skip_regression"))
             ):
                 return store.transition(
-                    CampaignPhase.HELDOUT_GATE,
+                    after_development,
                     state_updates={
                         "optimization_outcome": (
                             "same_seed_passed_threshold_override_regression_skipped"
@@ -5374,7 +5393,7 @@ def record_gate_and_advance(
                     },
                 )
             target = (
-                CampaignPhase.HELDOUT_GATE
+                after_development
                 if policy["skip_regression_gate"]
                 else CampaignPhase.REGRESSION_GATE
             )
@@ -5404,7 +5423,7 @@ def record_gate_and_advance(
     elif decision.kind == "regression":
         if decision.passed:
             state_updates = {}
-            target = CampaignPhase.HELDOUT_GATE
+            target = after_development
         else:
             target, state_updates = _advance_after_candidate_rejection(
                 store, decision.candidate_sha256

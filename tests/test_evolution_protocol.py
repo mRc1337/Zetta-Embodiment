@@ -148,7 +148,7 @@ def test_protocol_parses_tunable_gate_thresholds() -> None:
     assert protocol.heldout_require_significance is False
 
 
-def test_report_only_heldout_failure_still_allows_promotion(
+def test_final_test_seeds_are_not_used_before_promotion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     store = CampaignStore(tmp_path / "test-mode")
@@ -160,14 +160,10 @@ def test_report_only_heldout_failure_still_allows_promotion(
             candidate=candidate, kind="same_seed", passed=True, suffix="same-seed"
         ),
     )
-    assert store.state()["phase"] == CampaignPhase.HELDOUT_GATE.value
-    record_gate_and_advance(
-        campaign_root=store.root,
-        decision=_decision(
-            candidate=candidate, kind="heldout_20", passed=False, suffix="heldout"
-        ),
-    )
     assert store.state()["phase"] == CampaignPhase.PROMOTE.value
+    assert not any(
+        row["kind"].startswith("heldout") for row in store.gates.records()
+    )
     assert store.promote(candidate.sha256)["candidate_sha256"] == candidate.sha256
     child_manifest = replace(
         store.manifest(),
@@ -199,6 +195,49 @@ def test_report_only_heldout_failure_still_allows_promotion(
         next_manifest=child_manifest,
     )
     assert replay["continuation"] == first["continuation"]
+
+
+def test_test_mode_regression_promotes_without_touching_heldout(
+    tmp_path: Path,
+) -> None:
+    store = CampaignStore(tmp_path / "test-regression-mode")
+    store.initialize(
+        _manifest(heldout_mode="test", runtime_extra={"skip_regression_gate": False})
+    )
+    candidate = _candidate(store)
+    record_gate_and_advance(
+        campaign_root=store.root,
+        decision=_decision(
+            candidate=candidate, kind="same_seed", passed=True, suffix="same-seed"
+        ),
+    )
+    assert store.state()["phase"] == CampaignPhase.REGRESSION_GATE.value
+    record_gate_and_advance(
+        campaign_root=store.root,
+        decision=_decision(
+            candidate=candidate, kind="regression", passed=True, suffix="regression"
+        ),
+    )
+    assert store.state()["phase"] == CampaignPhase.PROMOTE.value
+    assert {row["kind"] for row in store.gates.records()} == {"same_seed", "regression"}
+    assert store.promote(candidate.sha256)["candidate_sha256"] == candidate.sha256
+
+
+def test_test_mode_refuses_early_heldout_gate(tmp_path: Path) -> None:
+    store = CampaignStore(tmp_path / "early-heldout")
+    store.initialize(_manifest(heldout_mode="test"))
+    candidate = _candidate(store)
+    with pytest.raises(ValueError, match="final test seeds cannot be gated"):
+        record_gate_and_advance(
+            campaign_root=store.root,
+            decision=_decision(
+                candidate=candidate,
+                kind="heldout_20",
+                passed=True,
+                suffix="early-heldout",
+            ),
+        )
+    assert store.gates.records() == []
 
 
 def test_validation_heldout_failure_obeys_round_limit(tmp_path: Path) -> None:

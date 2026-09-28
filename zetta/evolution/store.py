@@ -39,12 +39,14 @@ ALLOWED_TRANSITIONS: dict[CampaignPhase, set[CampaignPhase]] = {
         # A preregistered campaign may skip regression after a conclusive
         # same-seed pass and proceed directly to the held-out gate.
         CampaignPhase.HELDOUT_GATE,
+        CampaignPhase.PROMOTE,
         CampaignPhase.COMPLETE,
     },
     CampaignPhase.REGRESSION_GATE: {
         CampaignPhase.DIAGNOSE,
         CampaignPhase.PROPOSE,
         CampaignPhase.HELDOUT_GATE,
+        CampaignPhase.PROMOTE,
         CampaignPhase.COMPLETE,
     },
     CampaignPhase.HELDOUT_GATE: {
@@ -389,10 +391,9 @@ class CampaignStore:
             else "validation"
         )
         if heldout_mode == "test":
-            # Test mode still requires a completed fixed held-out decision,
-            # but the result is intentionally report-only and may be false.
-            if not any(row.get("kind") in heldout_kinds for row in gates):
-                raise ValueError("candidate has not completed the heldout test")
+            # The fixed test set is evaluated only after evolution terminates.
+            if any(row.get("kind") in heldout_kinds for row in gates):
+                raise ValueError("final test seeds were used during development")
         elif not (heldout_kinds & kinds):
             raise ValueError("candidate has not passed a heldout gate")
         promotion = {

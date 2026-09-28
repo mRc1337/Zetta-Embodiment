@@ -408,12 +408,13 @@ def _recover_or_promote(store: CampaignStore) -> dict[str, Any]:
         else "validation"
     )
     recorded_kinds = {row["kind"] for row in candidate_gates}
-    heldout_evidence = (
-        heldout_kinds & recorded_kinds
+    heldout_evidence = heldout_kinds & recorded_kinds
+    wrong_heldout_evidence = (
+        bool(heldout_evidence)
         if heldout_mode == "test"
-        else heldout_kinds & passed_kinds
+        else not bool(heldout_kinds & passed_kinds)
     )
-    if not required.issubset(passed_kinds) or not heldout_evidence:
+    if not required.issubset(passed_kinds) or wrong_heldout_evidence:
         raise ValueError("promotion ledger is not supported by all formal gates")
     expected_gate_ids = sorted(row["decision_id"] for row in candidate_gates)
     if promotion.get("gate_decision_ids") != expected_gate_ids:
