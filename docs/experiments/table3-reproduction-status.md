@@ -69,6 +69,17 @@ v9 preflight。论文没有公开其精确权重 SHA，因此这只能排除已�
 论文实际权重完全一致。继续保留 v9 开发集证据，但在解释最终结果前
 必须单独说明这项基线不一致。
 
+候选原因之一是冻结模型权重版本：另一个公开权重
+[`RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT`](https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT)
+被 [RLinf 的 LIBERO-Pro 评测讨论](https://github.com/RLinf/RLinf/issues/1099)
+用于相同 benchmark。已将它只作为**独立诊断候选**下载到 Hugging Face
+缓存（revision `6222623f635769bfc73c9472e29fab9b7fd8e027`，模型 SHA-256
+`4d9089c941793f170b625c2ed0ac7a3aa09b6f103e52dbbc82e67301529d6683`）；
+它与 v9 模型的 812 个 tensor 键和形状一致，norm stats 哈希相同，但
+模型文件哈希不同。论文没有指认这份权重，尚未做隔离的同开发 seed
+对照，不能据此认定它是论文权重或修复了基线偏差。v9 的 checkpoint、
+队列和运行服务均未切换。
+
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
 `queue/pending/paused_early_heldout_protocol`，未删除。v8 不计入 v9。
