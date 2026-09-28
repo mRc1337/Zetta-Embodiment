@@ -1473,3 +1473,22 @@ Role1 工具执行 118 步、其中 64 步扫动，但底层关节从 `0.0` 到 
 也不能回填冻结的 v6 结果。两次原始 episode、三路视频和 provenance
 保存在本地忽略目录 `non-scored-v7-slide-grasp-dev-p000-20260928/` 与
 `non-scored-v7-slide-grasp-closed-press-dev-p000-20260928/`。
+
+### v7 正式矩阵清单冻结（2026-09-28）
+
+为避免 `/tmp` 工作树失效，在
+`/usr1/home/s125mdg56_02/Zetta-Embodiment-v7` 建立了提交
+`a90ea1b365104dd2828c23ea5a5dc03eebb97f53` 的持久、detached 工作树。
+以该真实 Git HEAD 冻结新的本地矩阵
+`.local-repro/liberopro-paper-v7-matrix-20260928/`：40 个 campaign，
+每任务 50 个开发种子、预留 1--20 共 20 个 held-out 种子，全部初始状态
+非空、官方 horizon 有效，且开发/留出种子互斥。逐项与 v6 清单比较，
+任务、开发/留出种子、policy RNG 映射、horizon、任务语言的差异均为 0；
+v7 manifest 的 rollout 脚本路径指向持久工作树，严格不确定假说试验开关
+为 `true`。v7 此时只是 `prepared`，尚无 queue job、正式 episode、
+门限或 held-out 结果，不能算作 Table 3 成功率。
+
+第一次准备尝试误传了不等于工作树 HEAD 的完整提交哈希；在**未运行任何
+episode** 时将那份清单完整移至本地
+`.local-repro/liberopro-paper-v7-invalid-code-commit-20260928/` 保存审计，
+然后省略手写哈希、由准备器读取真实 HEAD 重新生成上述正式清单。
