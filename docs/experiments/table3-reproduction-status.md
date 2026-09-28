@@ -1775,9 +1775,15 @@ checkpoint 在 `127.0.0.1:18731` 启动，`/healthz` 报告 1/1 env rank healthy
 `37f43156eef61fd8a03bb940ef12d97da960678a0611950e9b82ab4da671570b`；
 权重 revision、两个文件哈希、runtime 配置哈希及 smoke 路径见新矩阵的
 `preflight/checkpoint-provenance.json`。held-out seeds 1--20 仍未用于训练/晋级。
+实际安装的 40 个任务 BDDL 与 init-state 文件以规范顺序组成的内容摘要为
+`9a0c1d70cee6edc35e770574d5ffb33a52a5b382a5dfe1a631854f4be2f3a4ce`；
+安装版 `liberopro` benchmark 模块 SHA-256 为
+`bd2938bd241a9378dd550412b13bf10a76d032ab390ce4ae12d3a00a8c31dbdc`。
+这些摘要也记入本地 provenance，供后续核对环境漂移。
 先用单个 GPU3 worker 作新矩阵首条完整 episode 的负载验证：
 LIBERO-10-S/task0、development seed 63675、policy RNG 1327407294 的
 520-action rollout 返回 `valid`、官方 success=false，队列 failed=0，
 轨迹、延迟记录和三路视频均存在。随后启动持续矩阵控制器与两名
-GPU3 worker 继续收集开发基线。单条结果不能估计 task 成功率，
+GPU3 worker 继续收集开发基线；累计 10 条均为 `valid`、0 条
+`infra_invalid`、0 条队列失败后扩为三名 worker。单条结果不能估计 task 成功率，
 且当前没有新 SFT 权重下的 recovery 效果或 Table 3 总表。
