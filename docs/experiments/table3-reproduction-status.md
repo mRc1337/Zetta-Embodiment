@@ -1268,3 +1268,34 @@ held-out seeds 1--20。多模态聚类的初步视觉解释曾认为底部抽屉
 held-out 访问；不过这条路径不计入 `read_campaign_artifact` 访问日志，需在
 候选晋升前继续核对代理完整 transcript 与数据隔离，不应仅以访问日志证明
 所有诊断证据均来自受控读取。
+
+### v6 首个候选 gate 的同任务池容量修复（2026-09-28 00:43 UTC）
+
+在不改变冻结 seed、policy RNG、候选 bundle 或策略门禁的前提下，对
+Goal-T task0 做了一次仅运行该 campaign、跳过其他 39 个任务的单轮控制器
+推进。Stage-2 生成候选 bundle
+`4661dc5c9c897a8fd5fa6b11e2cdf9467272d292719226b2e9144bf849261df7`，
+状态进入 `same_seed_gate`。这是待检验的因果候选：任务仍未成功且到第 145 步
+时，单次调用受审计的 `semantic_joint_interact` 对
+`wooden_cabinet_1.bottom_level` 做有界交互；固定步数触发有过拟合风险，
+不能仅凭 proposal 认为 recovery 有效。
+
+三个 queue worker 同时运行该任务的候选 arm 时，rollout 客户端仅声明
+`pool_size=1`、未声明动态上限；尽管 runtime 服务配置允许每 rank 4 个
+session，现有同任务池仍固定为 1，46 条 attempt-0 在创建 session 前返回
+`QUOTA_EXCEEDED ... max_dynamic_pool_size=1`，标为 `infra_invalid`。
+另 1 条候选 arm 取得有效结果，剩余 3 条 pending 曾临时移到
+`queue/pending/paused_pool_limit_task0/` 防止继续快速失败。此故障不计入
+候选成功率，也不能当作 recovery 失败。
+
+基础设施修复仅给 `run_evolution_rollout.py` 的同一 EnvSpec 声明
+`max_dynamic_pool_size=4`；服务端仍按自己的 `max_sessions_per_rank=4`
+上限约束，环境 `pool_size=1` 保持不变，按需扩容而非一次性冷启 4 个 slot。
+54 项相关 runtime/动态池测试通过。在确认无运行中的 job 后，单独重启本实验
+GPU3 runtime（新 epoch `1790555958`，未触及 GPU3 上其他用户进程）；
+非计分容量探针连续创建 3 个同任务 session 均成功并全部关闭。
+随后恢复 3 条暂存 job，并由该 campaign 控制器将 46 条失败 logical ID
+补发为 attempt-1；逐条核对补发 job 的 seed、policy RNG、bundle SHA-256
+与原 attempt-0 一致。修复发生在冻结代码提交之后，属于显式记录的
+基础设施容量变更；其候选效果仍须由有效的同种子 gate、历史回归和
+held-out 证据决定。

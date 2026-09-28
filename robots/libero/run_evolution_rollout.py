@@ -561,6 +561,10 @@ def _run(args: argparse.Namespace) -> EpisodeRecord:
                                     "libero_variant": libero_type,
                                 },
                                 pool_size=1,
+                                # Gate batches may run several same-task sessions at
+                                # once. The server clamps this to its configured
+                                # per-rank limit and grows slots on demand.
+                                max_dynamic_pool_size=4,
                                 resource_hints={"accelerator": True},
                             ),
                             default_policy_id=args.policy_id,
