@@ -19,6 +19,7 @@ from zetta.evolution.stages import (
     _mechanism_semantics_sha256,
     _normalize_task_contract,
     _reject_collision_control,
+    _require_distinct_goal_signatures,
     _validate_recovery_chunk_policy,
     _validate_recovery_tool_parameters,
 )
@@ -228,6 +229,21 @@ def test_recovery_parameters_must_match_frozen_tool_schema() -> None:
     }
     with pytest.raises(ValueError, match="outside its frozen schema"):
         _validate_recovery_tool_parameters(candidate, catalog)
+
+
+def test_cluster_review_keeps_different_goal_predicate_signatures_separate() -> None:
+    signatures = {"segment-a": "10", "segment-b": "01"}
+    with pytest.raises(ValueError, match="distinct evaluable goal predicate"):
+        _require_distinct_goal_signatures(
+            [{"member_segment_ids": ["segment-a", "segment-b"]}], signatures
+        )
+    _require_distinct_goal_signatures(
+        [
+            {"member_segment_ids": ["segment-a"]},
+            {"member_segment_ids": ["segment-b"]},
+        ],
+        signatures,
+    )
 
 
 def test_collision_aware_planner_name_is_not_mistaken_for_detector_gate() -> None:

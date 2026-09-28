@@ -91,6 +91,10 @@ group when the full trajectories show materially
 different failure mechanisms, and do not replace full-trajectory evidence with
 only an early divergence window. If the visual evidence cannot support a common
 mechanism, return an unresolved group rather than merging on a fallback label.
+When a generic horizon-incomplete segment carries an evaluable final BDDL goal
+predicate signature, preserve distinct signatures as separate groups; different
+completed subgoals are different observed failure signatures, even if the images
+alone leave the physical cause unresolved.
 Return exactly one JSON object matching the requested schema."""
 
 
@@ -293,6 +297,23 @@ def _validate_recovery_tool_parameters(
                     f"recovery tool {step.tool!r} received parameters outside its "
                     f"frozen schema: {sorted(unknown)}"
                 )
+
+
+def _require_distinct_goal_signatures(
+    groups: list[dict[str, Any]], signatures: dict[str, str]
+) -> None:
+    """Do not remerge generic failures with different completed BDDL subgoals."""
+
+    for group in groups:
+        found = {
+            signatures[str(segment)]
+            for segment in group["member_segment_ids"]
+            if str(segment) in signatures
+        }
+        if len(found) > 1:
+            raise ValueError(
+                "Cluster Agent merged distinct evaluable goal predicate signatures"
+            )
 
 
 def _reject_collision_control(candidate: CandidateBundle) -> None:
@@ -1893,6 +1914,15 @@ class CodexStageAgent:
         all_segments = {
             segment for cluster in clusters for segment in cluster.member_segment_ids
         }
+        goal_signatures: dict[str, str] = {}
+        for cluster in clusters:
+            match = re.fullmatch(
+                r"horizon_incomplete_goal_([01]{1,16})", cluster.hard_key[0]
+            )
+            if match:
+                goal_signatures.update(
+                    {segment: match.group(1) for segment in cluster.member_segment_ids}
+                )
         safe_index, failure_overviews, success_overviews = _cluster_visual_contract(
             artifact_index
         )
@@ -1914,6 +1944,7 @@ class CodexStageAgent:
             "artifact_index": safe_index,
             "constraints": {
                 "partition_every_segment_exactly_once": True,
+                "preserve_distinct_evaluable_goal_signatures": True,
                 "do_not_change_success_labels": True,
                 "visual_inspection_required": True,
                 "inspect_at_least_one_distinct_visual_per_output_group": True,
@@ -1972,6 +2003,7 @@ class CodexStageAgent:
                 seen.extend(str(item) for item in members)
             if len(seen) != len(set(seen)) or set(seen) != all_segments:
                 raise ValueError("Cluster Agent output is not an exact segment partition")
+            _require_distinct_goal_signatures(groups, goal_signatures)
             dominant = value.get("dominant_group_index")
             if not isinstance(dominant, int) or not 0 <= dominant < len(groups):
                 raise ValueError("Cluster Agent dominant group index is invalid")

@@ -492,7 +492,31 @@ def _expected_actions(result: Mapping[str, Any]) -> int | None:
     return None
 
 
-def _fallback_incomplete(result: Mapping[str, Any], action_count: int) -> _Signal:
+def _final_goal_predicate_bits(events: list[_Event]) -> str | None:
+    """Return an evaluable final BDDL goal signature, never a guessed predicate."""
+
+    states = [event for event in events if event.source == "state"]
+    if not states:
+        return None
+    final = max(states, key=lambda event: (event.step, event.ordinal)).payload.get("state")
+    if not isinstance(final, Mapping):
+        return None
+    count = _integer(final.get("privileged.task.goal.predicate_count"))
+    evaluable = _integer(final.get("privileged.task.goal.evaluable_count"))
+    if count is None or not 1 <= count <= 16 or evaluable != count:
+        return None
+    values = [
+        final.get(f"privileged.task.goal.predicate.{index}.satisfied")
+        for index in range(count)
+    ]
+    if any(not isinstance(value, bool) for value in values):
+        return None
+    return "".join("1" if value else "0" for value in values)
+
+
+def _fallback_incomplete(
+    result: Mapping[str, Any], action_count: int, events: list[_Event]
+) -> _Signal:
     expected = _expected_actions(result)
     if expected is not None and action_count < expected:
         summary = "The valid episode ended before its authoritative action horizon."
@@ -501,9 +525,14 @@ def _fallback_incomplete(result: Mapping[str, Any], action_count: int) -> _Signa
             "The task remained incomplete at the authoritative horizon; no earlier "
             "structured divergence signal was recorded."
         )
+    goal_bits = _final_goal_predicate_bits(events)
+    if goal_bits is not None:
+        summary += f" Final evaluable BDDL goal predicate signature: {goal_bits}."
     return _Signal(
         4,
-        "horizon_incomplete",
+        f"horizon_incomplete_goal_{goal_bits}"
+        if goal_bits is not None
+        else "horizon_incomplete",
         "closed_loop_execution",
         None,
         None,
@@ -572,7 +601,7 @@ def _segments(
     # exists. Adding it to every failed trajectory would create an artificial
     # 100%-prevalence cluster and hide the actionable failure modes.
     if not signals:
-        signals.append(_fallback_incomplete(result, action_count))
+        signals.append(_fallback_incomplete(result, action_count, events))
 
     # One deterministic segment per failure class/tool/stage.  The priority only
     # determines ordering; an episode may retain several causal clues.

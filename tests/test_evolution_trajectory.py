@@ -204,6 +204,38 @@ def test_full_horizon_without_signal_does_not_blame_final_action(
     assert analysis.segments[0].end_step == 20
 
 
+def test_incomplete_liberopro_goals_separate_distinct_predicate_failures(
+    tmp_path: Path,
+) -> None:
+    def analyze(bits: tuple[bool, bool], name: str) -> str:
+        root = tmp_path / name
+        root.mkdir()
+        artifacts = _artifacts(
+            root,
+            rows={
+                "chunks": [{"executed_horizon": 2}],
+                "actions": [{"step_index": 0}, {"step_index": 1}],
+                "states": [
+                    {
+                        "step_index": 1,
+                        "state": {
+                            "privileged.task.goal.predicate_count": 2,
+                            "privileged.task.goal.evaluable_count": 2,
+                            "privileged.task.goal.predicate.0.satisfied": bits[0],
+                            "privileged.task.goal.predicate.1.satisfied": bits[1],
+                        },
+                    }
+                ],
+                "tools": [],
+            },
+        )
+        analysis = index_episode_trajectory(result=_result(), artifacts=artifacts)
+        return analysis.segments[0].failure_class
+
+    assert analyze((True, False), "soup_only") == "horizon_incomplete_goal_10"
+    assert analyze((False, True), "butter_only") == "horizon_incomplete_goal_01"
+
+
 def test_privileged_residual_stall_and_safety_event_are_structured(
     tmp_path: Path,
 ) -> None:
