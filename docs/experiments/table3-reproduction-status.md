@@ -6,9 +6,11 @@
 
 论文 [Table 3](https://arxiv.org/html/2608.16590) 覆盖 Goal (T)、Goal (S)、LIBERO-10 (T)、LIBERO-10 (S) 四个 setting，共 40 个 task-setting 对。每个 task 的最终 success rate 来自隔离的 seeds 1--20；每组的 `Average` 是该组 10 个 task rate 的宏平均。演化另用每 task 50 个、排除 1--20 的 development seeds。当前仓库**尚未完成该实验**，因此不能报告本机 Table 3 的四组最终数值，也不能把论文或 README 的百分比当成本机结果。
 
-## 早期单 episode artifact（非当前 v6 正式矩阵）
+**2026-09-28 重要更正：下文 v2--v7 的 rollout 使用了从 OpenPI JAX `pi05_libero` 转换的 PyTorch checkpoint，而非公开部署预设指向的 [`RLinf/RLinf-Pi05-LIBERO-SFT`](https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-SFT)。因此下文将 v6/v7 称作“正式矩阵”的历史描述只表示当时冻结了 seed/代码/协议，不表示权重符合目标设定；其 success、gate 和 recovery 结果均降级为错误权重下的探索/诊断证据，不得并入 Table 3。旧 v7 在 427 条已完成、0 条 running 时安全停机，1573 条 pending 原样保存于 `queue/pending/paused_wrong_checkpoint`。必须用正确 SFT 权重从头重跑全部计分 episode。**
 
-仓库内提交的早期演示只有少量单 episode 结果；本地 `.local-repro/` 的 v6 正式矩阵进度见文末，不应与下表混合计分：
+## 早期单 episode artifact（错误权重下的探索证据）
+
+仓库内提交的早期演示只有少量单 episode 结果；本地 `.local-repro/` 的历史 v6 矩阵进度见文末，不应与下表混合计分：
 
 | task | baseline | Zetta/recovery | 可计分结论 |
 |---|---:|---:|---|
@@ -27,7 +29,7 @@
 4. 对每个 task 计算 `successes / episodes × 100`，再分别计算四组各十个 task rate 的 macro-average。
 5. 保存每个 episode 的 result JSON、视频、运行配置和聚合脚本输出，才能称为 Table 3 复现。
 
-## 当前阻塞
+## 历史阻塞（已由文末 SFT checkpoint 重启取代）
 
 已确认 benchmark 本体现已位于 `/usr1/home/s125mdg56_02/LIBERO-PRO`，四个正式 suite 各有 10 个 BDDL（共 40 个任务）。同时找到了本机 OpenPI Pi0.5 权重：`/usr1/home/s125mdg56_02/.cache/openpi/openpi-assets/checkpoints/pi05_libero_pytorch`。初次启动失败的根因是误指向 JAX/OCDBT 权重；切换到 PyTorch `model.safetensors`，并将 init-state 加载改为 `weights_only=False` 后，runtime 已能正常启动。
 
@@ -1742,3 +1744,40 @@ v7 当前部分开发集分别为 7/10、0/10，**不是**同一份测试结果�
 也不完全重现该 issue 的 task8 现象。必须等待本实验的固定 20-seed
 纯 VLA 测试臂，才能判断与 Table 3 基线的同口径差异；不能为了贴近
 论文数字更换 BDDL、任务语言、seed 或成功判定。
+
+### checkpoint 身份纠正与 v8 重启（2026-09-28）
+
+复核 runtime 配置发现，旧 v6/v7 加载的是本机从 OpenPI JAX
+`pi05_libero` 转换出的 `pi05_libero_pytorch`，其 `model.safetensors`
+SHA-256 为 `215d4d8bf991d021ba599a302aeb974ee4738eef14deb42feb7c2d1ff22c0d43`，
+LIBERO `norm_stats.json` SHA-256 为
+`b3a44bb2810436fb62917decaea58bd4d9110255df527dea21e8fd40c960bd84`。
+公开 SFT 仓库 `RLinf/RLinf-Pi05-LIBERO-SFT`、固定 revision
+`45ccfcc4e28634f1576ebf78cab0fbe2fd82432d` 的对应 SHA-256 分别为
+`4616e4c1966a5fb063b442ea5d69857f45e873222d839b794634d87d252ab9e7`
+和 `dae37d79a22108af83df9189c6710a3ec8e077d65b28e34bdf1da724e5ae30f1`。
+两份权重的 812 个参数名及形状完全一致，因此旧模型并非架构加载失败，
+但权重内容和归一化统计确实不同。不能仅凭这一差异推断旧基线偏低的全部原因。
+
+旧 v7 的控制器和三个 worker 已安全退出，427 条 completed 证据完整保留；
+剩余 1573 条 pending 原样移至 `queue/pending/paused_wrong_checkpoint`，
+0 条 running。旧 v6 的离线控制器及当前诊断子进程也已停止，state/ledger
+保留，不再让错误权重证据继续生成候选。旧 runtime 退出后，GPU3 上的新 runtime 使用正确 SFT
+checkpoint 在 `127.0.0.1:18731` 启动，`/healthz` 报告 1/1 env rank healthy。
+独立非计分 smoke（Goal-S/task0，seed 777777，5 个动作）返回 `valid`，
+并保存三路视频于 `/tmp/zetta-table3/sft-smoke-t0/videos/`；5 步未成功
+不代表完整 episode 失败。该 smoke 不进入任何正式分母。
+
+新矩阵 `.local-repro/liberopro-paper-v8-sft-matrix-20260928/` 沿用 v7
+冻结代码 `a90ea1b365104dd2828c23ea5a5dc03eebb97f53` 和 master seed
+`260816590`，但从空状态重新物化 40/40 campaign 与 2000 条开发基线
+队列，不复用旧 v7 rollout。`campaign-plan.json` SHA-256 为
+`37f43156eef61fd8a03bb940ef12d97da960678a0611950e9b82ab4da671570b`；
+权重 revision、两个文件哈希、runtime 配置哈希及 smoke 路径见新矩阵的
+`preflight/checkpoint-provenance.json`。held-out seeds 1--20 仍未用于训练/晋级。
+先用单个 GPU3 worker 作新矩阵首条完整 episode 的负载验证：
+LIBERO-10-S/task0、development seed 63675、policy RNG 1327407294 的
+520-action rollout 返回 `valid`、官方 success=false，队列 failed=0，
+轨迹、延迟记录和三路视频均存在。随后启动持续矩阵控制器与两名
+GPU3 worker 继续收集开发基线。单条结果不能估计 task 成功率，
+且当前没有新 SFT 权重下的 recovery 效果或 Table 3 总表。
