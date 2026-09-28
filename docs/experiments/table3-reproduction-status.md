@@ -1511,3 +1511,10 @@ matrix 控制器。两条实验线合计仍为三 worker，v6 诊断代理未中
 `pending=1987`、`running=2`、`completed=11`、`failed=0`；运行时
 `/healthz` 报 `status=ok`、`heartbeat_failed=0`。这些仍只是
 generation-0 的纯 VLA 开发基线，不是 recovery 或 Table 3 最终成绩。
+
+持续控制器与两名 v7 worker 均确认存活。对随后完成、覆盖 14 个不同任务
+的前 14 条 episode 逐项重新审计：`14/14 valid`，官方成功 4、失败 10；
+任务、冻结开发 seed 与逐 seed policy RNG、`strict_pure_vla` / 无 bundle、
+官方 evaluation horizon、三路非空视频和延迟摘要全部匹配，问题计数为 0。
+两条执行中 job 的 heartbeat 持续更新。这仅是早期协议/基础设施检查，
+样本不足以估计 40 个任务的最终成功率。
