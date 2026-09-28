@@ -1499,3 +1499,15 @@ matrix sweep：`40/40` campaign 均在 `rollout` 阶段，无调度错误；v7 �
 且没有任何 seed 1--20。此时**尚未启动 v7 worker**，故这些只是待运行的
 开发基线 job，不是 2000 条有效 episode。v6 控制器当时仍有活跃诊断代理；
 为避免与已回退到三 worker 的 GPU3 配置叠加并发，v7 rollout 暂未执行。
+
+### v7 正式基线开始执行（2026-09-28）
+
+核对 v6 队列无 `pending` / `running` 且旧 worker 无子任务后，将其中两个
+空闲 worker 退出，保留一个给 v6；v7 启动两个独立 worker 和 300 秒轮询的
+matrix 控制器。两条实验线合计仍为三 worker，v6 诊断代理未中断，v6
+冻结状态与队列未改写。v7 首批完成的 10 条开发基线全部
+`status=valid`（官方成功 2、失败 8）；逐条核对三路非空 MP4、延迟摘要、
+开发种子不在 1--20，均通过，`failed=0`。后续快照为 v7 队列
+`pending=1987`、`running=2`、`completed=11`、`failed=0`；运行时
+`/healthz` 报 `status=ok`、`heartbeat_failed=0`。这些仍只是
+generation-0 的纯 VLA 开发基线，不是 recovery 或 Table 3 最终成绩。
