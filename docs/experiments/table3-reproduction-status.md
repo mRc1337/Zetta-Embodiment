@@ -1,6 +1,6 @@
 # LIBERO-Pro Table 3 复现状态
 
-更新时间：2026-09-27
+更新时间：2026-09-28
 
 ## 结论
 
@@ -1567,3 +1567,21 @@ MuJoCo 接触；若承力的是非目标物体，返回障碍物名称并停止�
 后续 v8 提交 `f672e6f` 补上“压把手分段中途遇到盘子即停”以及
 “非目标接触力值缺失即保守停止”的回归测试；runtime 测试增至 50 项通过。
 该变更仍未经过真实仿真验证，不能回填 v7 或计入正式恢复率。
+
+# 2026-09-28：401 重试复核与 Table 3 出表校验
+
+旧 v3 LIBERO-10-S task-02 的 4 条 `401 Unauthorized` 同种子 candidate
+attempt（p037--p040）已各有原 seed、policy RNG、bundle 不变的 attempt-1，
+4 条均为 `valid` 且 official success=true；原 attempt-0 保留为
+`infra_invalid`。由于 v3 后来发现逐次 policy RNG 未实际作用于 OpenPi，
+这些结果不能用作可信的 Table 3 配对证据。2026-09-28 对当前
+`gpt-5.6-sol` / `high` 的实时无工具鉴权探针再次通过全部 5 项检查，
+报告位于本地忽略目录
+`.local-repro/liberopro-paper-v7-matrix-20260928/preflight/codex-401-retry-20260928-user-request/report.json`；
+探针不计入策略成功率。
+
+正式 v7 的只读基线审计在本次检查时核实 143/2000 条开发 episode，
+40 个任务均已有证据，问题数 0，尚未完成。Table 3 汇总器新增对
+每个任务全部 50 个冻结开发 seed 的纯 VLA ledger、逐次 policy RNG、
+无 bundle 状态及三路视频/延迟证据的独立校验；缺失或漂移将返回
+`incomplete`，不能仅凭 20 个留出结果宣称完成。6 项相关测试通过。

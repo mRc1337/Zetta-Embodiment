@@ -274,6 +274,49 @@ def _score_final_pure_vla(
     return successes
 
 
+def _verify_development_baseline(
+    campaign_root: Path, manifest: dict[str, Any], development: list[int]
+) -> None:
+    """Require the complete, frozen pure-VLA corpus before scoring a task."""
+
+    records = _jsonl(campaign_root / "state/ledgers/episodes.jsonl")
+    if len(records) != len(development):
+        raise ValueError(
+            f"development baseline has {len(records)} valid episodes, "
+            f"expected {len(development)}"
+        )
+    seen: set[str] = set()
+    for payload in records:
+        record = EpisodeRecord.from_dict(payload)
+        logical_id = record.logical_id
+        if logical_id in seen:
+            raise ValueError("development baseline has a duplicate episode")
+        seen.add(logical_id)
+        suffix = logical_id.removeprefix("g0000-rollout-")
+        index = (
+            int(suffix)
+            if logical_id.startswith("g0000-rollout-") and suffix.isdigit()
+            else -1
+        )
+        if (
+            not 0 <= index < len(development)
+            or record.status != "valid"
+            or type(record.success) is not bool
+            or record.generation != 0
+            or record.seed != development[index]
+            or record.policy_rng
+            != manifest["policy_rng_by_seed"][str(development[index])]
+            or record.bundle_sha256 is not None
+        ):
+            raise ValueError("development baseline violates frozen pure-VLA schedule")
+        videos = record.artifact_index.get("videos")
+        if not isinstance(videos, dict) or set(videos) != {"agentview", "wrist", "multiview"}:
+            raise ValueError("development baseline lacks three-camera video evidence")
+        for path in videos.values():
+            _artifact(path, campaign_root=campaign_root)
+        _artifact(record.artifact_index.get("latency_summary"), campaign_root=campaign_root)
+
+
 def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> dict[str, Any]:
     nodes = _lineage(campaign_root, row, code_commit)
     manifest = nodes[0][1]
@@ -290,6 +333,7 @@ def _score_task(campaign_root: Path, row: dict[str, Any], code_commit: str) -> d
         str(seed) for seed in (*development, *range(1, 21))
     }:
         raise ValueError("campaign policy RNG schedule is incomplete")
+    _verify_development_baseline(campaign_root, manifest, development)
     policy = manifest.get("runtime", {}).get("evolution_policy", {})
     if policy.get("heldout_mode") != "test" or policy.get("regression_scope") != "target_cluster":
         raise ValueError("campaign held-out or regression policy differs")

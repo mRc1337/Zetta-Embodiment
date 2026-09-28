@@ -41,6 +41,31 @@ def _completed_task(root: Path, suite: str, task_id: int) -> dict:
     latency = campaign / "state/latency.json"
     video.write_bytes(b"video")
     latency.write_bytes(b"{}")
+    development_records = []
+    for index, seed in enumerate(development):
+        development_records.append({
+            "episode_id": f"dev-{task}-{seed}",
+            "logical_id": f"g0000-rollout-{index:03d}",
+            "generation": 0,
+            "seed": seed,
+            "policy_rng": manifest["policy_rng_by_seed"][str(seed)],
+            "bundle_sha256": None,
+            "status": "valid",
+            "success": False,
+            "started_at": "2026-09-27T00:00:00Z",
+            "finished_at": "2026-09-27T00:01:00Z",
+            "elapsed_s": 60.0,
+            "artifact_index": {
+                "videos": {camera: str(video) for camera in ("agentview", "wrist", "multiview")},
+                "latency_summary": str(latency),
+            },
+        })
+    baseline_ledger = campaign / "state/ledgers/episodes.jsonl"
+    baseline_ledger.parent.mkdir(parents=True, exist_ok=True)
+    baseline_ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in development_records),
+        encoding="utf-8",
+    )
     pairs = []
     records = []
     for index in range(20):
@@ -113,6 +138,27 @@ def test_report_requires_all_40_heldout_tasks_and_uses_macro_average(tmp_path: P
     assert incomplete["status"] == "incomplete"
     assert incomplete["completed_tasks"] == 39
     assert "baseline_overall_macro_pct" not in incomplete
+
+
+def test_report_rejects_missing_or_drifted_development_baseline(tmp_path: Path) -> None:
+    row = _completed_task(tmp_path, "libero_goal_task", 0)
+    campaign = tmp_path / row["campaign_root"]
+    ledger = campaign / "state/ledgers/episodes.jsonl"
+    records = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in records[:-1]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="expected 50"):
+        _score_task(campaign, row, COMMIT)
+
+    records[0]["policy_rng"] += 1
+    ledger.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="frozen pure-VLA schedule"):
+        _score_task(campaign, row, COMMIT)
 
 
 def test_report_rejects_nonbaseline_parent_arm(tmp_path: Path) -> None:
