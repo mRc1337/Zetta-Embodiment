@@ -1450,3 +1450,26 @@ evolution 测试通过。此修复只存在于 v7 分支，尚未生成新的正
 与 v6 的 40 个冻结计划逐项一致，差异计数为 0；全部任务的初始状态非空、
 开发/留出种子不交叉。这只证明新版本仍可保持同一实验任务和种子设计，
 未创建 v7 正式 rollout，也未把 v6 episode 迁移为 v7 结果。
+
+### v6 第四候选门限与 v7 抽屉抓取非计分探针（2026-09-28）
+
+Goal-T task0 第四候选 `8a872c6654fe000513e629506679edde04e9053763a99a9027df31f65fdbbff4`
+在冻结的 50 个 same-seed 开发对上全部有效，但 candidate 官方成功 `0/50`、
+parent 成功 `0/50`、candidate wins `0`，正式 decision
+`gate-8ef75030a754cd22da88` 为 `passed=false`。该候选与第二候选的
+实际工具和参数相同，仍未推动目标底层抽屉；campaign 已返回 `propose`，
+`candidate_round=5`，没有晋级 regression 或使用 held-out seeds。
+
+v7 分支将已有实现但未公开给 Stage-2 的 `slide_grasp` 参数加入工具目录后，
+对同一开发种子 79921、policy RNG 1296969111 和原第二候选 bundle，
+仅将该参数改为 `true` 做了独立**非计分**重放。第一次有效 rollout 的
+Role1 工具执行 118 步、其中 64 步扫动，但底层关节从 `0.0` 到 `0.0`，
+官方任务失败。检查代码发现 re-contact 路径在接近时闭合夹爪，却在压到
+把手位置时再次张开；v7 提交 `a90ea1b` 让 grasp 模式在该段保持闭合，
+并修正探针 provenance 对源 bundle 哈希的错误记录。对应 47 项 runtime
+测试通过。用**同一个开发种子**重放修正后，episode 仍有效、工具实际执行，
+但目标关节仍为 `0.0`、官方任务仍失败。因此此参数与局部动作修正都
+**尚未证明 recovery 有效**，不能作为 Table 3 成功数、正式 gate 证据，
+也不能回填冻结的 v6 结果。两次原始 episode、三路视频和 provenance
+保存在本地忽略目录 `non-scored-v7-slide-grasp-dev-p000-20260928/` 与
+`non-scored-v7-slide-grasp-closed-press-dev-p000-20260928/`。
