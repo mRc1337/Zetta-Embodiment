@@ -10,6 +10,7 @@ the final success.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,13 @@ def _path(value: Any, state_root: Path) -> Path:
 
 
 def _action_hashes(record: EpisodeRecord, state_root: Path) -> list[str]:
-    rows = _jsonl(_path(record.artifact_index.get("actions"), state_root))
+    path = _path(record.artifact_index.get("actions"), state_root)
+    trajectory = record.artifact_index.get("trajectory_index")
+    hashes = trajectory.get("artifact_sha256") if isinstance(trajectory, dict) else None
+    expected = hashes.get("actions") if isinstance(hashes, dict) else None
+    if not isinstance(expected, str) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        raise ValueError("action evidence differs from its immutable trajectory digest")
+    rows = _jsonl(path)
     result = []
     for index, row in enumerate(rows, 1):
         digest = row.get("action_sha256")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -46,6 +47,11 @@ def _gate(tmp_path: Path) -> Path:
             ])
             artifacts = {
                 "actions": str(trace),
+                "trajectory_index": {
+                    "artifact_sha256": {
+                        "actions": hashlib.sha256(trace.read_bytes()).hexdigest(),
+                    },
+                },
                 "candidate_intervention": candidate,
                 "initial_observation_identity": {
                     "state_sha256": f"{seed:064x}", "camera_sha256": {}
@@ -95,4 +101,12 @@ def test_audit_rejects_missing_paired_evidence(tmp_path: Path) -> None:
     valid = state / "candidates" / CANDIDATE / "gates/same_seed/ledgers/valid.jsonl"
     valid.write_text("\n".join(valid.read_text().splitlines()[:-1]) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="incomplete or duplicate valid arms"):
+        audit(state, CANDIDATE)
+
+
+def test_audit_rejects_action_artifact_drift(tmp_path: Path) -> None:
+    state = _gate(tmp_path)
+    trace = state / "pair-21-candidate-actions.jsonl"
+    trace.write_text(trace.read_text() + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="immutable trajectory digest"):
         audit(state, CANDIDATE)

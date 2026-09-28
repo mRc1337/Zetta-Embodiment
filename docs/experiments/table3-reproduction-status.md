@@ -1718,3 +1718,9 @@ same-seed gate 逐 pair 比较物理 reset、动作哈希序列及 recovery 激�
 “仅在整条演化结束后测一次”的实现。虽然代码不把这些测试结果反馈为
 晋级条件，人工分析也必须避免用中途 held-out 成绩选择最终策略；最终
 Table 3 报告应明确评测次数，并在无法证明隔离时不宣称严格无偏。
+
+配对时序审计随后补上动作文件与 EpisodeRecord 中
+`trajectory_index.artifact_sha256.actions` 的 SHA-256 绑定；文件若被改写，
+不再根据其内容判定介入前缀。污染文件反例测试通过，连同现有出表测试
+共 12 项通过。旧 v3 的 49 对真实 gate 在新增哈希核验下结论不变：
+41 条 candidate win 均发生介入前动作漂移。
