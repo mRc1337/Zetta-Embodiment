@@ -41,6 +41,16 @@ SFT checkpoint、norm stats、runtime 配置的文件哈希与此 plan 绑定，
 但内容被改写时会拒绝出表；此报告代码的后续提交不改变 v9 冻结的
 rollout/演化代码修订。
 
+v9 的首轮 40 个不同任务各完成一条开发 seed，40/40 `valid`、0 queue
+failed，纯 VLA 官方成功为 Goal-T 1/10、Goal-S 3/10、LIBERO-10-T
+0/10、LIBERO-10-S 0/10。每任务仅一条随机开发 seed，不是论文的
+固定测试 seed 1--20 成绩，不能据此估计最终 Table 3；但尤其是
+LIBERO-10-T 与论文测试集 50% 的差异需持续监控。已核对当前推理
+`policy_config`、backend、BF16 dtype、chunk size 与上游公开
+`zetta_libero_pi05.yaml` 逐字段一致；checkpoint 文件哈希也通过
+v9 preflight。论文没有公开其精确权重 SHA，因此这只能排除已知
+配置错配，不能证明本地权重等同于论文实验权重。
+
 旧 v8 在停止调度后继续完成当前工作，到 123 completed、0 running、
 0 failed 时已停止其三条 worker；其余 1877 个 pending job 原样移动到
 `queue/pending/paused_early_heldout_protocol`，未删除。v8 不计入 v9。
